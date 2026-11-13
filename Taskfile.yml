@@ -1,68 +1,48 @@
 version: '3'
 
-env:
-  ANSIBLE_CONFIG: ansible/ansible.cfg
-  ANSIBLE_HOST: 192.168.0.123 # paste host here
-  ANSIBLE_USER: ihord # paste user here
-  TIMEZONE: Europe/Kyiv
-  USE_SWAP: true
-  HOSTNAME: raspberrypi # paste hostname here
-  SSD_MOUNT_POINT: /mnt/ssd
-  SSH_KEY: raspberry
-
+vars:
+  BINARY: hostup
+  BUILD_DIR: bin
 
 tasks:
-  setup:
-    desc: Run Ansible Playbook to configure Raspberry Pi
+  default:
     cmds:
-      - >
-        ansible-playbook ansible/site.yml
-        -e ansible_host={{.ANSIBLE_HOST}}
-        -e ansible_user={{.ANSIBLE_USER}}
-        -e HOSTNAME={{.HOSTNAME}}
-        -e SSD_MOUNT_POINT={{.SSD_MOUNT_POINT}}
-        -e TIMEZONE={{.TIMEZONE}}
-        -e USE_SWAP={{.USE_SWAP}}
+      - task --list
 
-  ping:
-    desc: Check Ansible connectivity
+  build:
+    desc: Build Hostup
     cmds:
-      - >
-        ansible -i ansible/inventory/hosts all -m ping
-        -e ansible_host={{.ANSIBLE_HOST}}
-        -e ansible_user={{.ANSIBLE_USER}}
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/{{.BINARY}} ./cmd/hostup
 
-  ssh:
-    desc: SSH into Raspberry Pi
+  run:
+    desc: Run Hostup
     cmds:
-      - ssh {{.ANSIBLE_USER}}@{{.ANSIBLE_HOST}}
+      - go run ./cmd/hostup
 
-  logs:
-    desc: Tail system logs (ISO format, all units)
+  test:
+    desc: Run tests
     cmds:
-      - ssh -i {{.SSH_KEY}} {{.ANSIBLE_USER}}@{{.ANSIBLE_HOST}} \
-        "journalctl -f -n 100 --output=short-iso --no-pager"
+      - go test ./...
 
-  logs:compact:
-    desc: Tail system logs (compact, message-only)
+  fmt:
+    desc: Format Go code
     cmds:
-      - ssh -i {{.SSH_KEY}} {{.ANSIBLE_USER}}@{{.ANSIBLE_HOST}} \
-        "journalctl -f -n 100 --output=cat --no-pager"
+      - go fmt ./...
 
-  logs:pretty:
-    desc: Tail system logs (pretty JSON)
+  vet:
+    desc: Run Go vet
     cmds:
-      - ssh -i {{.SSH_KEY}} {{.ANSIBLE_USER}}@{{.ANSIBLE_HOST}} \
-        "journalctl -f -n 100 --output=json-pretty --no-pager"
+      - go vet ./...
 
-  logs:docker:
-    desc: Tail logs from Docker service only
+  check:
+    desc: Run verification
     cmds:
-      - ssh -i {{.SSH_KEY}} {{.ANSIBLE_USER}}@{{.ANSIBLE_HOST}} \
-        "journalctl -u docker.service -f -n 100 --output=short-iso --no-pager"
+      - task: fmt
+      - task: vet
+      - task: test
 
-  logs:sshd:
-    desc: Tail logs from SSHD (auth/login)
+  clean:
+    desc: Remove build artifacts
     cmds:
-      - ssh -i {{.SSH_KEY}} {{.ANSIBLE_USER}}@{{.ANSIBLE_HOST}} \
-        "journalctl -u ssh -f -n 100 --output=short-iso --no-pager"
+      - rm -rf {{.BUILD_DIR}}
