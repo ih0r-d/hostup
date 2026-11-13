@@ -21,6 +21,7 @@ func NewRootCommand() *cobra.Command {
 		newVersionCommand(),
 		newInfoCommand(),
 		newDoctorCommand(system.Diagnose),
+		newServiceCommand(system.NewServiceManager(nil), confirmService),
 	)
 
 	return root

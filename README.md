@@ -32,6 +32,10 @@ hostup info
 hostup info --json
 hostup doctor
 hostup doctor --json
+hostup service list [--json]
+hostup service status <name> [--json]
+hostup service start|stop|restart|enable|disable <name> [--yes]
+hostup service logs <name> [--follow] [--lines N]
 ```
 
 `info` displays the Linux distribution, version, architecture, and hostname.
@@ -42,6 +46,10 @@ and require no root privileges or external commands.
 Human-readable sizes use GiB; JSON sizes are integer bytes. Disk space available
 excludes reserved filesystem blocks. If a diagnostic cannot be collected,
 `doctor` returns an error and exits with a nonzero status.
+
+Service management uses `systemctl` and `journalctl` directly on Linux systems
+running systemd. Changes prompt for confirmation on a terminal; use `--yes` for
+automation. Hostup never invokes `sudo`.
 
 `info` and `doctor` require Linux. Development, unit tests, and cross-compilation
 work on macOS; diagnostic tests use fixtures without Linux hardware.
@@ -89,8 +97,7 @@ Task commands:
 
 Early development.
 
-The CLI implements `version`, `info`, and read-only `doctor` diagnostics.
-System management features are not implemented yet.
+The CLI implements `version`, `info`, `doctor`, and systemd service management.
 
 ## Documentation
 
