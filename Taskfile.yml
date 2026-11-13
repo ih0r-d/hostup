@@ -1,9 +1,16 @@
 version: "3"
 
+silent: true
+
 vars:
   BINARY: hostup
   BUILD_DIR: bin
   MODULE: github.com/ih0r-d/hostup
+  VM_NAME: hostup-sandbox
+  VM_UBUNTU: "24.04"
+  VM_CPUS: "2"
+  VM_MEMORY: 2G
+  VM_DISK: 10G
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
 
@@ -137,6 +144,101 @@ tasks:
     internal: true
     cmds:
       - go test -race ./...
+
+  vm:check:
+    internal: true
+    preconditions:
+      - sh: command -v multipass >/dev/null 2>&1
+        msg: Install Multipass before running VM tasks.
+      - sh: command -v jq >/dev/null 2>&1
+        msg: Install jq to parse Multipass JSON output.
+
+  vm:up:
+    desc: Create or start the Ubuntu integration VM
+    cmds:
+      - task: vm:check
+      - |
+        set -eu
+        VM_LIST=$(multipass list --format json)
+        VM_STATE=$(printf '%s\n' "$VM_LIST" | jq -er --arg name "{{.VM_NAME}}" \
+          '[.list[] | select(.name == $name) | .state][0] // "Missing"')
+        case "$VM_STATE" in
+          Missing)
+            multipass launch "{{.VM_UBUNTU}}" --name "{{.VM_NAME}}" \
+              --cpus "{{.VM_CPUS}}" --memory "{{.VM_MEMORY}}" --disk "{{.VM_DISK}}"
+            ;;
+          Stopped|Suspended)
+            multipass start "{{.VM_NAME}}"
+            ;;
+          Running)
+            echo "{{.VM_NAME}} is already running."
+            ;;
+          *)
+            echo "Cannot start {{.VM_NAME}} in state $VM_STATE; inspect it with multipass info." >&2
+            exit 1
+            ;;
+        esac
+
+  vm:down:
+    desc: Stop the integration VM without deleting it
+    cmds:
+      - task: vm:check
+      - |
+        set -eu
+        VM_LIST=$(multipass list --format json)
+        VM_STATE=$(printf '%s\n' "$VM_LIST" | jq -er --arg name "{{.VM_NAME}}" \
+          '[.list[] | select(.name == $name) | .state][0] // "Missing"')
+        case "$VM_STATE" in
+          Running|Suspended)
+            multipass stop "{{.VM_NAME}}"
+            ;;
+          Missing|Stopped|Deleted)
+            echo "{{.VM_NAME}} is already stopped or absent ($VM_STATE)."
+            ;;
+          *)
+            echo "Cannot stop {{.VM_NAME}} in state $VM_STATE; inspect it with multipass info." >&2
+            exit 1
+            ;;
+        esac
+
+  vm:status:
+    desc: Show integration VM status and information
+    cmds:
+      - task: vm:check
+      - multipass info "{{.VM_NAME}}"
+
+  vm:shell:
+    desc: Open an interactive Ubuntu shell in the integration VM
+    interactive: true
+    cmds:
+      - task: vm:up
+      - multipass shell "{{.VM_NAME}}"
+
+  vm:deploy:
+    desc: Build and transfer the latest Linux ARM64 binary to the VM
+    cmds:
+      - task: vm:up
+      - task: build:arm64
+      - multipass transfer "{{.ROOT_DIR}}/{{.BUILD_DIR}}/{{.BINARY}}-linux-arm64" "{{.VM_NAME}}:/home/ubuntu/{{.BINARY}}"
+      - multipass exec "{{.VM_NAME}}" -- chmod +x "/home/ubuntu/{{.BINARY}}"
+
+  vm:test:
+    desc: Deploy and run read-only Linux smoke tests in the VM
+    cmds:
+      - task: vm:deploy
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" version
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" info
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" doctor
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service list
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service status systemd-journald
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service logs systemd-journald --lines 20
+
+  vm:delete:
+    desc: Permanently delete only the integration VM (asks for confirmation)
+    prompt: "Permanently delete VM '{{.VM_NAME}}' and all its data?"
+    cmds:
+      - task: vm:check
+      - multipass delete --purge "{{.VM_NAME}}"
 
   clean:
     desc: Remove build artifacts

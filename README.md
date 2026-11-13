@@ -93,6 +93,30 @@ Task commands:
 
     task --list
 
+### Linux integration testing on macOS
+
+On Apple Silicon, install [Multipass](https://canonical.com/multipass/install),
+Task, and jq. Multipass uses native ARM64 Ubuntu images. The default VM is
+`hostup-test`, running Ubuntu 24.04 LTS with 2 CPUs, 2G RAM, and a 10G disk.
+Configure these defaults through the `VM_*` variables in `Taskfile.yml`.
+
+```sh
+task vm:up      # Create if missing, start if stopped; reuse a running VM
+task vm:status  # Show VM state and information
+task vm:shell   # Ensure the VM is running and open an Ubuntu shell
+task vm:deploy  # Rebuild Linux ARM64 and copy to /home/ubuntu/hostup
+task vm:test    # Deploy, then run read-only smoke tests
+task vm:down    # Stop the VM and retain its disk
+task vm:delete  # Confirm permanent deletion of only this VM
+```
+
+Smoke tests run `version`, `info`, `doctor`, `service list`, and status/log
+checks for `systemd-journald`. They stop with a nonzero exit code on any failure
+and do not change systemd services. `vm:deploy` and `vm:test` ensure the VM is
+running and rebuild the binary on every invocation.
+
+Run `task ci` for local verification without creating or changing any VMs.
+
 ## Project Status
 
 Early development.
