@@ -3,18 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/ih0r-d/hostup/internal/cli"
 )
 
-var version = "dev"
-
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println("hostup", version)
-		return
+	if err := cli.NewRootCommand().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
 	}
-
-	fmt.Println("Hostup - Linux setup and management toolkit")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  hostup version")
 }
