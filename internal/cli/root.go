@@ -1,6 +1,9 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/ih0r-d/hostup/internal/system"
+	"github.com/spf13/cobra"
+)
 
 var version = "dev"
 
@@ -17,6 +20,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(
 		newVersionCommand(),
 		newInfoCommand(),
+		newDoctorCommand(system.Diagnose),
 	)
 
 	return root

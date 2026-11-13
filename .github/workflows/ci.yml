@@ -36,3 +36,11 @@ jobs:
 
       - name: Build
         run: go build -o hostup ./cmd/hostup
+
+      - name: Build Linux ARM64 and AMD64
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+        run: |
+          GOARCH=arm64 go build -o bin/hostup-linux-arm64 ./cmd/hostup
+          GOARCH=amd64 go build -o bin/hostup-linux-amd64 ./cmd/hostup

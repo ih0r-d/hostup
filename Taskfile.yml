@@ -9,12 +9,56 @@ vars:
 
 tasks:
   default:
-    desc: List available tasks
+    desc: Show available tasks
     cmds:
       - task --list
 
+  dev:
+    desc: Format, tidy, validate and build locally
+    cmds:
+      - task: fmt
+      - task: tidy
+      - task: check
+      - task: build
+
+  dev:install:
+    desc: Install Hostup development command
+    cmds:
+      - task: build
+      - mkdir -p "$HOME/.local/bin"
+      - ln -sfn "{{.ROOT_DIR}}/{{.BUILD_DIR}}/{{.BINARY}}" "$HOME/.local/bin/{{.BINARY}}"
+      - echo "Hostup installed at $HOME/.local/bin/{{.BINARY}}"
+      - echo "Ensure $HOME/.local/bin is in your PATH"
+
+  dev:uninstall:
+    desc: Remove Hostup development command
+    cmds:
+      - |
+        LINK="$HOME/.local/bin/{{.BINARY}}"
+        TARGET="{{.ROOT_DIR}}/{{.BUILD_DIR}}/{{.BINARY}}"
+        if [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$TARGET" ]; then
+          rm "$LINK"
+          echo "Hostup development command removed"
+        else
+          echo "No matching Hostup development symlink found"
+        fi
+
+  ci:
+    desc: Run full verification pipeline
+    cmds:
+      - task: fmt:check
+      - task: vet
+      - task: test
+      - task: test:race
+      - task: build:linux
+
+  run:
+    desc: Run Hostup locally
+    cmds:
+      - go run ./cmd/hostup {{.CLI_ARGS}}
+
   build:
-    desc: Build for the current platform
+    desc: Build for current platform
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - >-
@@ -24,13 +68,13 @@ tasks:
         ./cmd/hostup
 
   build:linux:
-    desc: Build for Linux ARM64 and AMD64
+    desc: Build Linux ARM64 and AMD64 binaries
     cmds:
       - task: build:arm64
       - task: build:amd64
 
   build:arm64:
-    desc: Build for Linux ARM64 (Raspberry Pi)
+    internal: true
     env:
       GOOS: linux
       GOARCH: arm64
@@ -44,7 +88,7 @@ tasks:
         ./cmd/hostup
 
   build:amd64:
-    desc: Build for Linux AMD64
+    internal: true
     env:
       GOOS: linux
       GOARCH: amd64
@@ -57,47 +101,42 @@ tasks:
         -o {{.BUILD_DIR}}/{{.BINARY}}-linux-amd64
         ./cmd/hostup
 
-  run:
-    desc: Run Hostup locally
-    cmds:
-      - go run ./cmd/hostup {{.CLI_ARGS}}
-
-  test:
-    desc: Run unit tests
-    cmds:
-      - go test ./...
-
-  test:race:
-    desc: Run tests with race detector
-    cmds:
-      - go test -race ./...
-
-  fmt:
-    desc: Format Go code
-    cmds:
-      - go fmt ./...
-
-  fmt:check:
-    desc: Verify Go formatting
-    cmds:
-      - sh -c 'test -z "$(gofmt -l cmd internal)"'
-
-  vet:
-    desc: Run static analysis
-    cmds:
-      - go vet ./...
-
   check:
-    desc: Run all verification steps
+    internal: true
     cmds:
       - task: fmt:check
       - task: vet
       - task: test
 
+  fmt:
+    internal: true
+    cmds:
+      - go fmt ./...
+
+  fmt:check:
+    internal: true
+    cmds:
+      - sh -c 'test -z "$(gofmt -l cmd internal)"'
+
   tidy:
-    desc: Tidy Go dependencies
+    internal: true
     cmds:
       - go mod tidy
+
+  vet:
+    internal: true
+    cmds:
+      - go vet ./...
+
+  test:
+    internal: true
+    cmds:
+      - go test ./...
+
+  test:race:
+    internal: true
+    cmds:
+      - go test -race ./...
 
   clean:
     desc: Remove build artifacts
