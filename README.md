@@ -36,6 +36,8 @@ hostup service list [--json]
 hostup service status <name> [--json]
 hostup service start|stop|restart|enable|disable <name> [--yes]
 hostup service logs <name> [--follow] [--lines N]
+hostup setup plan [--hostname NAME] [--timezone ZONE] [--json]
+hostup setup apply [--hostname NAME] [--timezone ZONE] [--yes]
 ```
 
 `info` displays the Linux distribution, version, architecture, and hostname.
@@ -53,6 +55,54 @@ automation. Hostup never invokes `sudo`.
 
 `info` and `doctor` require Linux. Development, unit tests, and cross-compilation
 work on macOS; diagnostic tests use fixtures without Linux hardware.
+
+### Initial setup
+
+Preview and apply hostname/timezone configuration on Linux:
+
+```sh
+hostup setup plan --hostname pi-server --timezone Europe/Kyiv
+hostup setup plan --hostname pi-server --timezone Europe/Kyiv --json
+hostup setup apply --hostname pi-server --timezone Europe/Kyiv
+# Automation requires explicit confirmation; run with privileges yourself.
+hostup setup apply --hostname pi-server --timezone Europe/Kyiv --yes
+hostup setup plan                    # Show current settings; change nothing
+hostup setup apply --timezone UTC    # Keep the current hostname
+```
+
+Plans are strictly read-only. Text and JSON report `current`, `desired`, and
+whether each value is `changed`; text labels unchanged settings explicitly.
+Omitted flags retain current values; explicitly empty values are invalid.
+Hostnames use lowercase DNS labels (letters, digits, and internal hyphens),
+with at most 63 bytes per label and 64 bytes total. Timezones must be named
+locations in the available IANA timezone database, such as `UTC`, `Europe/Kyiv`,
+or `America/New_York`; process-local `Local` and numeric offsets are unsupported.
+
+Hostup reads the kernel hostname and the `/etc/localtime` zoneinfo symlink.
+If that link cannot identify a timezone, it queries `timedatectl` read-only.
+It validates all supplied values before making changes. `apply` prints the plan
+and prompts on an interactive terminal; non-interactive execution requires
+`--yes`, including when nothing needs changing. Apply rereads current settings
+after confirmation and rejects unrelated changes since planning.
+
+Only necessary changes run, in hostname then timezone order, through
+`hostnamectl --no-ask-password set-hostname` and
+`timedatectl --no-ask-password set-timezone`, without a shell or automatic sudo.
+These native tools persist the system settings; Hostup adds no configuration,
+receipt, or state files. The system must provide the native systemd tools and
+appropriate permissions. Every external command has a 30-second timeout and
+honors the caller's context cancellation.
+
+Application stops on the first error and reports completed commands, the failed
+setting, and changes not attempted. A failed or interrupted command may already
+have changed its setting; rerun `setup plan` to inspect the actual state.
+There is no automatic rollback. Repeated successful application skips settings
+already at the desired values.
+
+The reusable `internal/setup` engine owns validation, planning, and execution;
+Cobra handles flags, rendering, and confirmation. A future TUI can use the same
+`Engine.Plan`, `Engine.Apply`, plan/result types, and validation functions.
+An interactive setup wizard is not implemented yet.
 
 ## Planned Features
 
@@ -189,7 +239,8 @@ the test or installation tasks delete or recreate the VM.
 
 Early development.
 
-The CLI implements `version`, `info`, `doctor`, and systemd service management.
+The CLI implements `version`, `info`, `doctor`, systemd service management,
+and hostname/timezone setup planning and application.
 
 ## Documentation
 

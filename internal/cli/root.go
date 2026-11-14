@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/ih0r-d/hostup/internal/setup"
 	"github.com/ih0r-d/hostup/internal/system"
 	"github.com/spf13/cobra"
 )
@@ -22,6 +23,7 @@ func NewRootCommand() *cobra.Command {
 		newInfoCommand(),
 		newDoctorCommand(system.Diagnose),
 		newServiceCommand(system.NewServiceManager(nil), confirmService),
+		newSetupCommand(setup.NewEngine(nil, nil), confirmService, setupIsTerminal),
 	)
 
 	return root
