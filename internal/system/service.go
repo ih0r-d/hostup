@@ -54,11 +54,11 @@ func NewServiceManager(executor CommandExecutor) *ServiceManager {
 }
 
 func (m *ServiceManager) List(ctx context.Context) ([]Service, error) {
-	out, err := m.executor.Run(ctx, "systemctl", "list-units", "--type=service", "--all", "--no-legend", "--no-pager")
+	out, err := m.executor.Run(ctx, "systemctl", "list-units", "--type=service", "--all", "--plain", "--full", "--no-legend", "--no-pager")
 	if err != nil {
 		return nil, commandError("list services", "systemctl", err)
 	}
-	var services []Service
+	services := make([]Service, 0)
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 || !strings.HasSuffix(fields[0], ".service") {
@@ -75,9 +75,53 @@ func (m *ServiceManager) Status(ctx context.Context, name string) (string, error
 	}
 	out, err := m.executor.Run(ctx, "systemctl", "status", "--no-pager", normalizeServiceName(name))
 	if err != nil {
-		return "", commandError("get status", "systemctl", err)
+		// systemctl status uses exit code 3 for inactive and failed units.
+		// Keep their status report, but do not suppress execution errors or stderr.
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 3 ||
+			strings.TrimSpace(string(exitErr.Stderr)) != "" || strings.TrimSpace(string(out)) == "" {
+			return string(out), commandError("get status", "systemctl", err)
+		}
 	}
 	return string(out), nil
+}
+
+func (m *ServiceManager) StatusInfo(ctx context.Context, name string) (Service, error) {
+	if err := validateServiceName(name); err != nil {
+		return Service{}, err
+	}
+	unit := normalizeServiceName(name)
+	out, err := m.executor.Run(ctx, "systemctl", "show", "--no-pager", "--property=Id,LoadState,ActiveState,SubState", unit)
+	if err != nil {
+		return Service{}, commandError("get status", "systemctl", err)
+	}
+	var status Service
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return Service{}, fmt.Errorf("get status: malformed systemctl property %q", line)
+		}
+		switch key {
+		case "Id":
+			status.Name = value
+		case "LoadState":
+			status.Load = value
+		case "ActiveState":
+			status.Active = value
+		case "SubState":
+			status.Sub = value
+		}
+	}
+	if status.Load == "not-found" {
+		return Service{}, fmt.Errorf("get status: service not found: %s", unit)
+	}
+	if status.Name == "" || status.Load == "" || status.Active == "" || status.Sub == "" {
+		return Service{}, fmt.Errorf("get status: incomplete systemctl properties for %s", unit)
+	}
+	return status, nil
 }
 
 func (m *ServiceManager) Change(ctx context.Context, action, name string) error {

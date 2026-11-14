@@ -52,15 +52,16 @@ func newServiceListCommand(manager *system.ServiceManager) *cobra.Command {
 func newServiceStatusCommand(manager *system.ServiceManager) *cobra.Command {
 	var jsonOutput bool
 	cmd := &cobra.Command{Use: "status <name>", Short: "Display service status", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if jsonOutput {
+			status, err := manager.StatusInfo(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
+		}
 		status, err := manager.Status(cmd.Context(), args[0])
 		if err != nil {
 			return err
-		}
-		if jsonOutput {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
-				Name   string `json:"name"`
-				Status string `json:"status"`
-			}{args[0], status})
 		}
 		_, err = io.WriteString(cmd.OutOrStdout(), status)
 		return err

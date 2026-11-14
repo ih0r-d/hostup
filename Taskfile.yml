@@ -157,49 +157,13 @@ tasks:
     desc: Create or start the Ubuntu integration VM
     cmds:
       - task: vm:check
-      - |
-        set -eu
-        VM_LIST=$(multipass list --format json)
-        VM_STATE=$(printf '%s\n' "$VM_LIST" | jq -er --arg name "{{.VM_NAME}}" \
-          '[.list[] | select(.name == $name) | .state][0] // "Missing"')
-        case "$VM_STATE" in
-          Missing)
-            multipass launch "{{.VM_UBUNTU}}" --name "{{.VM_NAME}}" \
-              --cpus "{{.VM_CPUS}}" --memory "{{.VM_MEMORY}}" --disk "{{.VM_DISK}}"
-            ;;
-          Stopped|Suspended)
-            multipass start "{{.VM_NAME}}"
-            ;;
-          Running)
-            echo "{{.VM_NAME}} is already running."
-            ;;
-          *)
-            echo "Cannot start {{.VM_NAME}} in state $VM_STATE; inspect it with multipass info." >&2
-            exit 1
-            ;;
-        esac
+      - bash "{{.ROOT_DIR}}/scripts/vm/lifecycle.sh" up "{{.VM_NAME}}" "{{.VM_UBUNTU}}" "{{.VM_CPUS}}" "{{.VM_MEMORY}}" "{{.VM_DISK}}"
 
   vm:down:
     desc: Stop the integration VM without deleting it
     cmds:
       - task: vm:check
-      - |
-        set -eu
-        VM_LIST=$(multipass list --format json)
-        VM_STATE=$(printf '%s\n' "$VM_LIST" | jq -er --arg name "{{.VM_NAME}}" \
-          '[.list[] | select(.name == $name) | .state][0] // "Missing"')
-        case "$VM_STATE" in
-          Running|Suspended)
-            multipass stop "{{.VM_NAME}}"
-            ;;
-          Missing|Stopped|Deleted)
-            echo "{{.VM_NAME}} is already stopped or absent ($VM_STATE)."
-            ;;
-          *)
-            echo "Cannot stop {{.VM_NAME}} in state $VM_STATE; inspect it with multipass info." >&2
-            exit 1
-            ;;
-        esac
+      - bash "{{.ROOT_DIR}}/scripts/vm/lifecycle.sh" down "{{.VM_NAME}}"
 
   vm:status:
     desc: Show integration VM status and information
@@ -232,6 +196,30 @@ tasks:
       - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service list
       - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service status systemd-journald
       - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service logs systemd-journald --lines 20
+
+  vm:test:integration:
+    desc: Test service operations against a disposable systemd unit
+    cmds:
+      - task: vm:deploy
+      - bash "{{.ROOT_DIR}}/scripts/vm/integration.sh" "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}"
+
+  vm:install:
+    desc: Install the local Linux build at /usr/local/bin/hostup in the VM
+    cmds:
+      - task: vm:deploy
+      - bash "{{.ROOT_DIR}}/scripts/vm/installation.sh" install "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}"
+
+  vm:test:install:
+    desc: Install and verify the sandbox binary and CLI
+    cmds:
+      - task: vm:install
+      - bash "{{.ROOT_DIR}}/scripts/vm/installation.sh" verify "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}" "{{.VERSION}}"
+
+  vm:uninstall:
+    desc: Remove only the VM binary owned by the development installer
+    cmds:
+      - task: vm:check
+      - bash "{{.ROOT_DIR}}/scripts/vm/installation.sh" uninstall "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}"
 
   vm:delete:
     desc: Permanently delete only the integration VM (asks for confirmation)
