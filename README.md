@@ -27,6 +27,8 @@ Target architectures: ARM64 and AMD64.
 ## Commands
 
 ```sh
+hostup
+hostup tui
 hostup version
 hostup info
 hostup info --json
@@ -57,6 +59,48 @@ automation. Hostup never invokes `sudo`.
 
 `info` and `doctor` require Linux. Development, unit tests, and cross-compilation
 work on macOS; diagnostic tests use fixtures without Linux hardware.
+
+### Interactive dashboard
+
+`hostup` opens the main TUI when both stdin and stdout are interactive terminals.
+With redirected input/output it prints concise command usage and exits successfully.
+`hostup tui` requires interactive terminals and returns an error otherwise;
+`TERM=dumb` is unsupported. Explicit CLI commands never open the dashboard.
+
+The navigation order is Overview, System Setup, Services, Network, VPN, Security,
+Storage, Packages, Logs. Overview is initially selected. **Up/Down** or **j/k**
+select a section; **Enter** opens it. Moving the selection performs no backend
+work. **Esc** returns to navigation or the parent view, **q** quits navigation,
+and **Ctrl+C** exits safely from any screen. **Tab** changes focus only inside
+the wizard's configuration fields, where multiple controls exist.
+
+Overview reads an unprivileged Linux diagnostic snapshot on entry: hostname,
+distribution/version, architecture, logical CPUs, available/total RAM, used/total
+disk, and diagnostic collection status. It does not report invented CPU usage,
+health checks, service counts, or live metrics. There is no polling.
+
+Services loads a scrollable, read-only systemd list. **Enter** reads the selected
+unit's load, active, and substate using the same status backend as the CLI.
+**Esc** preserves selection when returning from details. Service changes and
+logs remain in the existing CLI commands.
+
+System Setup runs the existing wizard inside the same Bubble Tea event loop.
+Closing or cancelling the wizard with **Esc** returns to Overview. Explicit
+confirmation remains mandatory for changes. **Ctrl+C** during application waits
+for the active operation and leaves a partial/cancellation summary after exit.
+The standalone `hostup setup wizard` command remains available.
+
+Network, VPN, Security, Storage, Packages, and Logs show **Not implemented yet**.
+VPN lists planned providers without operational statuses or actions. No backend
+operations exist for these placeholders.
+
+The original logo, navy surfaces, cyan focus, and green successful states follow
+the references in `src/assets/mokups/`. The sidebar collapses on narrow screens;
+content and controls remain within the viewport. The same fixed navy/cyan/green palette is used on light- and dark-background
+terminals. Colors adapt to 256/16-color capabilities; `NO_COLOR` and colorless
+terminals use monochrome. The entire viewport is painted, including unused space. Below 24 columns or 12 rows,
+resize the terminal to use the dashboard. Overview and Services report Linux
+limitations clearly on macOS; navigation and placeholders remain usable.
 
 ### Initial setup
 
@@ -113,17 +157,17 @@ hostup setup wizard
 NO_COLOR=1 hostup setup wizard
 ```
 
-The wizard requires both stdin and stdout to be interactive terminals. It opens
-only when explicitly requested; running `hostup` without arguments still displays
-help. Configure settings inside the wizard; `--hostname`, `--timezone`, `--json`,
+The wizard requires both stdin and stdout to be interactive terminals. Open it
+through System Setup in the dashboard or explicitly with `hostup setup wizard`.
+Configure settings inside the wizard; `--hostname`, `--timezone`, `--json`,
 and `--yes` belong to the non-interactive plan/apply workflow.
 
 The centered layout follows the supplied setup design: cyan active steps, navy
 panels, shaded comparison rows, green results, and a separate action bar. Wide
 terminals show a navigation rail containing only the implemented System Setup
 section. The existing PNG logo is embedded and rendered as a compact terminal
-mark; narrow and monochrome layouts use a simple wordmark fallback. Colors adapt
-to light, dark, and low-color terminals.
+mark; narrow and monochrome layouts use a simple wordmark fallback. The fixed dark Hostup palette is shared with the dashboard, independent of
+terminal appearance; low-color and monochrome terminals have fallbacks.
 
 The welcome screen shows the platform. Configuration fields start with the
 current values, preserve unedited settings, and show validation
@@ -149,7 +193,7 @@ for more space and prevents hidden confirmation/application actions. `NO_COLOR`
 uses monochrome presentation; state labels remain meaningful without colors.
 Progress reports completion only after an operation succeeds. Failures do not
 retry automatically or roll back changes. Results remain visible until closed,
-and a plain summary stays in the terminal afterward.
+and the standalone wizard leaves a plain summary in the terminal afterward.
 
 Setup changes require Linux with native systemd tools and appropriate privileges.
 On macOS the welcome screen reports the unsupported environment; no changes can
@@ -179,7 +223,8 @@ src/
     cli/            # Cobra commands and completion
     setup/          # Shared setup engine
     system/         # Native Linux operations
-    tui/setup/      # Bubble Tea wizard
+    tui/            # Main application, navigation, and read-only screens
+      setup/        # Existing wizard and embedded session adapter
   assets/           # Brand resources; only the logo is embedded
     mokups/         # Design references, excluded from the binary
 .dev/

@@ -74,7 +74,7 @@ type model struct {
 	confirmed       bool
 	cancelling      bool
 	noColor         bool
-	dark            bool
+	profile         colorprofile.Profile
 	logo            string
 	details         bool
 	err             error
@@ -85,7 +85,7 @@ type model struct {
 func newModel(ctx context.Context, engine *setup.Engine, noColor bool) *model {
 	ctx, cancel := context.WithCancel(ctx)
 	m := &model{engine: engine, ctx: ctx, cancel: cancel, width: 80, height: 24,
-		noColor: noColor, dark: true, platform: runtime.GOOS + "/" + runtime.GOARCH}
+		noColor: noColor, profile: colorprofile.TrueColor, platform: runtime.GOOS + "/" + runtime.GOARCH}
 	for i := range m.inputs {
 		m.inputs[i] = textinput.New()
 		m.inputs[i].Prompt = ""
@@ -105,23 +105,15 @@ func (m *model) Init() tea.Cmd {
 		<-m.ctx.Done()
 		return cancelledMsg{m.ctx.Err()}
 	}}
-	if !m.noColor {
-		commands = append(commands, tea.RequestBackgroundColor)
-	}
 	return tea.Batch(commands...)
 }
 
 func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
-	case tea.BackgroundColorMsg:
-		if dark := msg.IsDark(); dark != m.dark {
-			m.dark, m.logo = dark, ""
-			m.prepareLogo()
-		}
 	case tea.ColorProfileMsg:
-		if msg.Profile == colorprofile.ASCII || msg.Profile == colorprofile.NoTTY {
-			m.noColor, m.logo = true, ""
-		}
+		m.profile = msg.Profile
+		m.logo = ""
+		m.prepareLogo()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.prepareLogo()

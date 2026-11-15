@@ -6,13 +6,18 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/ih0r-d/hostup/src/assets"
 )
+
+// RenderLogo shares the wizard's original asset rendering with the dashboard.
+// Call on layout/theme changes, not on every frame.
+func RenderLogo() string { return renderLogo() }
 
 // Render the existing PNG into a small 9×3 cell mark using half blocks. This
 // needs no image protocol, external program, or replacement logo. Call only on
 // resize/theme changes; rendering the view itself never decodes image data.
-func renderLogo(dark bool) string {
+func renderLogo() string {
 	file, err := assets.OpenLogo()
 	if err != nil {
 		return ">_"
@@ -22,10 +27,7 @@ func renderLogo(dark bool) string {
 	if err != nil {
 		return ">_"
 	}
-	background := color.RGBA{R: 0xF1, G: 0xF5, B: 0xF9, A: 0xFF}
-	if dark {
-		background = color.RGBA{R: 0x0D, G: 0x19, B: 0x29, A: 0xFF}
-	}
+	background := color.RGBA{R: 0x0D, G: 0x19, B: 0x29, A: 0xFF}
 	// Sparse area sampling preserves the cyan/green silhouette without scaling
 	// an entire image buffer. Source RGBA values are already alpha-premultiplied.
 	sample := func(x, y int) color.RGBA {
@@ -55,7 +57,7 @@ func renderLogo(dark bool) string {
 }
 
 func (m *model) prepareLogo() {
-	if !m.noColor && m.width >= 70 && m.height >= 24 && m.logo == "" {
-		m.logo = renderLogo(m.dark)
+	if !m.noColor && m.profile >= colorprofile.ANSI256 && m.width >= 70 && m.height >= 24 && m.logo == "" {
+		m.logo = renderLogo()
 	}
 }

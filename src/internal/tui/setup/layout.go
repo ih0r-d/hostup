@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/ih0r-d/hostup/src/internal/tui/palette"
 )
 
 const (
@@ -47,11 +48,12 @@ func (m *model) layout(body string, t theme) string {
 	}
 	start := min(m.scroll, max(0, len(lines)-available))
 	panel := panelStyle.Width(width).Render(strings.Join(lines[start:min(len(lines), start+available)], "\n"))
+	panel = palette.Surface(panel, m.profile, palette.Panel, m.noColor)
 	frame := header + "\n" + steps + "\n\n" + panel + "\n" + footer
 	if m.wide() {
 		frame = lipgloss.JoinHorizontal(lipgloss.Top, m.sidebar(t, lipgloss.Height(frame)), strings.Repeat(" ", railGap), frame)
 	}
-	return t.page.Render(lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, frame))
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, frame)
 }
 
 func (m *model) header(t theme, width int) string {
@@ -76,7 +78,7 @@ func (m *model) sidebar(t theme, height int) string {
 	top := brand + "\n\n" + t.muted.Render("LINUX MANAGEMENT") + "\n\n" + t.selected.Render("02 System Setup")
 	bottom := t.muted.Render("LOCAL HOST\n" + ansi.Truncate(m.platform, inner, "…"))
 	gap := max(0, height-t.rail.GetVerticalFrameSize()-lipgloss.Height(top)-lipgloss.Height(bottom))
-	return t.rail.Width(railWidth).Height(height).Render(top + strings.Repeat("\n", gap+1) + bottom)
+	return palette.Surface(t.rail.Width(railWidth).Height(height).Render(top+strings.Repeat("\n", gap+1)+bottom), m.profile, palette.Sidebar, m.noColor)
 }
 
 func (m *model) steps(t theme, width int) string {
@@ -98,7 +100,11 @@ func (m *model) steps(t theme, width int) string {
 			if i == index {
 				style = t.activeTile
 			}
-			items[i] = style.Width(tileWidth).Render(label)
+			background := palette.Panel
+			if i == index {
+				background = palette.Selected
+			}
+			items[i] = palette.Surface(style.Width(tileWidth).Render(label), m.profile, background, m.noColor)
 		} else if i == index {
 			items[i] = t.accent.Render("[" + label + "]")
 		} else {
@@ -151,6 +157,7 @@ func (m *model) footer(t theme, width int, scrollable bool) string {
 		back = t.muted.Render("esc Back")
 	}
 	bar := t.footer.Width(width).Render(aligned(back, t.button(primary, enabled), width-t.footer.GetHorizontalFrameSize()))
+	bar = palette.Surface(bar, m.profile, palette.Panel, m.noColor)
 	var hints []string
 	if m.page == configure {
 		hints = append(hints, "tab field")

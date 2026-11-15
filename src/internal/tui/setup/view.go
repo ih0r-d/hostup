@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ih0r-d/hostup/src/internal/setup"
+	"github.com/ih0r-d/hostup/src/internal/tui/palette"
 )
 
 // View formats stored UI state. Planning, validation and execution stay in the
@@ -28,15 +29,15 @@ func (m *model) View() tea.View {
 		}
 		content = strings.Join(lines[:min(len(lines), max(0, m.height))], "\n")
 	} else {
-		content = m.layout(m.body(), newTheme(m.noColor, m.dark))
+		content = m.layout(m.body(), newTheme(m.noColor, m.profile))
 	}
-	view := tea.NewView(content)
+	view := tea.NewView(palette.Viewport(content, m.width, m.height, m.profile, m.noColor))
 	view.AltScreen = true
 	return view
 }
 
 func (m *model) body() string {
-	t := newTheme(m.noColor, m.dark)
+	t := newTheme(m.noColor, m.profile)
 	switch m.page {
 	case welcome:
 		os := t.muted.Render("OS  " + strings.ReplaceAll(m.platform, "/", " · "))
@@ -91,7 +92,7 @@ func (m *model) body() string {
 }
 
 func (m *model) fieldView(index int) string {
-	t := newTheme(m.noColor, m.dark)
+	t := newTheme(m.noColor, m.profile)
 	item := []struct{ name, current, invalid string }{
 		{"Hostname", m.current.Hostname, "invalid hostname · lowercase DNS, max 64 bytes"},
 		{"Timezone", m.current.Timezone, "invalid timezone · use an IANA location, e.g. UTC"},
@@ -128,7 +129,7 @@ func (m *model) reviewView(t theme) string {
 		}
 		rowWidth := m.contentWidth() - t.row.GetHorizontalFrameSize()
 		row := aligned(t.muted.Render(strings.ToUpper(item.name)), badge, rowWidth) + "\n" + value
-		lines = append(lines, t.row.Width(m.contentWidth()).Render(row), "")
+		lines = append(lines, palette.Surface(t.row.Width(m.contentWidth()).Render(row), m.profile, palette.Selected, m.noColor), "")
 	}
 	if !m.plan.HasChanges() {
 		return strings.TrimSpace(strings.Join(lines, "\n"))

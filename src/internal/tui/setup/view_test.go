@@ -107,13 +107,13 @@ func TestThemeAndFocus(t *testing.T) {
 	m.noColor = false
 	dark := m.View().Content
 	m.Update(tea.BackgroundColorMsg{Color: color.White})
-	if m.dark || m.View().Content == dark {
-		t.Fatal("theme did not adapt to a light terminal")
+	if m.View().Content != dark {
+		t.Fatal("light terminal changed Hostup's dark identity")
 	}
 	m.noColor = true
 	light := m.View().Content
 	m.Update(tea.BackgroundColorMsg{Color: color.Black})
-	if !m.dark || m.View().Content != light {
+	if m.View().Content != light {
 		t.Fatal("monochrome presentation depends on terminal colors")
 	}
 }
@@ -167,7 +167,7 @@ func TestMockupLayoutAndOriginalLogo(t *testing.T) {
 		}
 	}
 	m.Update(tea.ColorProfileMsg{Profile: colorprofile.ASCII})
-	if !m.noColor || m.logo != "" || strings.Contains(m.View().Content, "▀") {
+	if m.profile != colorprofile.ASCII || m.logo != "" || strings.Contains(m.View().Content, "▀") {
 		t.Fatal("colorless terminal retained the raster logo")
 	}
 	if !strings.Contains(m.View().Content, "┏") {
