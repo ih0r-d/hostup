@@ -60,6 +60,8 @@ func (m *model) layout() string {
 		caption = "Select a section"
 	} else if m.selected == services {
 		caption = "Systemd services · read only"
+	} else if m.selected == network {
+		caption = "Local network configuration · read only"
 	} else if m.selected != overview {
 		caption = "Planned module"
 	}
@@ -70,7 +72,7 @@ func (m *model) layout() string {
 	body := m.body(t, width, height)
 	if !m.opened && !m.wide() {
 		body = m.navigation(t, width, height)
-	} else if m.selected != services || !m.opened || m.services.details {
+	} else if !m.opened || (m.selected != services && m.selected != network) || (m.selected == services && m.services.details) || (m.selected == network && m.network.details) {
 		lines := strings.Split(lipgloss.Wrap(body, width, " "), "\n")
 		start := min(m.scroll, max(0, len(lines)-height))
 		body = strings.Join(lines[start:min(len(lines), start+height)], "\n")
@@ -123,6 +125,8 @@ func (m *model) body(t theme, width, height int) string {
 		return m.overviewBody(t, width)
 	case services:
 		return m.servicesBody(t, width, height)
+	case network:
+		return m.networkBody(t, width, height)
 	default:
 		return m.placeholderBody(t)
 	}
@@ -135,6 +139,21 @@ func (m *model) maxScroll() int {
 
 func (m *model) hints() string {
 	width, _ := m.contentSize()
+	if m.opened && m.selected == network {
+		if m.network.loading || m.network.err != nil || len(m.network.report.Interfaces) == 0 {
+			if width < 42 {
+				return "r refresh  esc back"
+			}
+			return "r refresh · esc sections · ctrl+c exit"
+		}
+		if width < 42 {
+			return "↑↓ enter r esc"
+		}
+		if m.network.details {
+			return "↑↓ scroll · r refresh · esc interfaces"
+		}
+		return "↑↓/jk select · enter details · r refresh · esc back"
+	}
 	if width < 42 {
 		if !m.opened {
 			return "↑↓/jk  enter  q"

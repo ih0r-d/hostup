@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ih0r-d/hostup/src/internal/network"
 	"github.com/ih0r-d/hostup/src/internal/setup"
 	"github.com/ih0r-d/hostup/src/internal/system"
 	"github.com/ih0r-d/hostup/src/internal/tui"
@@ -53,6 +54,7 @@ func newRootCommand(run func(context.Context, io.Reader, io.Writer) error, inter
 		newVersionCommand(),
 		newInfoCommand(),
 		newDoctorCommand(system.Diagnose),
+		newNetworkCommand(network.Inspect),
 		newServiceCommand(system.NewServiceManager(nil), confirmService),
 		newSetupCommand(setup.NewEngine(nil, nil), confirmService, setupIsTerminal),
 	)

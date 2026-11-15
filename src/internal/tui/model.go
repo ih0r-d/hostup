@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
+	networkinfo "github.com/ih0r-d/hostup/src/internal/network"
 	"github.com/ih0r-d/hostup/src/internal/setup"
 	"github.com/ih0r-d/hostup/src/internal/system"
 	setupwizard "github.com/ih0r-d/hostup/src/internal/tui/setup"
@@ -31,6 +32,7 @@ type dependencies struct {
 	diagnose func() (system.Diagnostics, error)
 	services *system.ServiceManager
 	setup    *setup.Engine
+	network  func(context.Context) (networkinfo.Report, error)
 }
 
 type cancelledMsg struct{}
@@ -47,6 +49,7 @@ type model struct {
 	requestCancel context.CancelFunc
 	overview      overviewState
 	services      servicesState
+	network       networkState
 	wizard        *setupwizard.Session
 	quitting      bool
 	noColor       bool
@@ -93,6 +96,9 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case servicesMsg:
 		m.receiveServices(msg)
 		return m, nil
+	case networkMsg:
+		m.receiveNetwork(msg)
+		return m, nil
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return m, m.quit()
@@ -129,6 +135,9 @@ func (m *model) key(key string) tea.Cmd {
 	}
 	if m.selected == services {
 		return m.servicesKey(key)
+	}
+	if m.selected == network {
+		return m.networkKey(key)
 	}
 	switch key {
 	case "esc":

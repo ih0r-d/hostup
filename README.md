@@ -35,6 +35,10 @@ hostup info
 hostup info --json
 hostup doctor
 hostup doctor --json
+hostup network status [--json]
+hostup network interfaces [--json]
+hostup network routes [--json]
+hostup network dns [--json]
 hostup service list [--json]
 hostup service status <name> [--json]
 hostup service start|stop|restart|enable|disable <name> [--yes]
@@ -64,6 +68,51 @@ plan/verification lifecycle.
 
 `info` and `doctor` require Linux. Development, unit tests, and cross-compilation
 work on macOS; diagnostic tests use fixtures without Linux hardware.
+
+### Network inspection
+
+Network Inspection v1 reads local Linux configuration as an ordinary user, even
+without internet access, configured networking, NetworkManager, systemd-resolved,
+or additional administration packages. It runs no commands, DNS lookups, HTTP
+requests, or connectivity probes and never changes configuration.
+
+```sh
+hostup network status
+hostup network interfaces --json
+hostup network routes --json
+hostup network dns
+```
+
+Interfaces include their index, administrative/operational states, MTU, available
+MAC address, loopback flag, IPv4/IPv6 prefixes, and recognized link-layer type.
+An Ethernet link type does not imply a physical device; virtual interfaces are
+included. Missing type/state information remains `unknown`, with source details.
+
+Routes include destination, optional source prefix/gateway, interface reference,
+metric, default-prefix identification, and active/inactive/rejected state. They
+use `/proc/net/route` (IPv4 main table) and `/proc/net/ipv6_route` (no table IDs).
+These views do not provide complete policy rules, table identity, or all
+multipath information. A default prefix, especially a rejected/inactive entry,
+does not establish a usable gateway or internet connectivity.
+
+DNS shows `/etc/resolv.conf`, its resolved symlink target when available,
+configured nameservers, and search domains. Configured resolver/search order is
+preserved; interfaces, addresses, routes, and source diagnostics are sorted
+deterministically. Loopback resolver addresses are marked as local stubs, not
+upstream DNS. Upstream DNS remains explicitly `unknown`; NSS, per-link policies,
+and actual resolver service availability are not inspected.
+
+Text and JSON include source statuses: `available` (possibly empty),
+`unavailable` (missing), `partial` (some entries rejected), or `failed`.
+Missing DNS/routes and inspection failures retain useful partial results and
+do not fail the whole command; consumers should inspect `sources`. Unsupported
+platforms and cancellation/deadlines return errors. There are no fabricated
+fallback nameservers or addresses. Collection is a non-atomic snapshot of the
+process's network namespace, with context checks around local API/file reads;
+an individual synchronous OS read cannot be forcibly interrupted.
+
+Connectivity diagnostics, traffic monitoring, network configuration, and
+WireGuard management remain planned.
 
 ### Interactive dashboard
 
@@ -95,7 +144,12 @@ confirmation remains mandatory for changes. **Ctrl+C** during application waits
 for the active operation and leaves a partial/cancellation summary after exit.
 The standalone `hostup setup wizard` command remains available.
 
-Network, VPN, Security, Storage, Packages, and Logs show **Not implemented yet**.
+Network loads the shared inspection snapshot asynchronously. **Up/Down** or
+**j/k** selects an interface; **Enter** opens its addresses, state, routes, and
+DNS summary. **r** refreshes manually, preserving selection when possible.
+**Esc** returns to the interface list or navigation. There is no automatic polling.
+
+VPN, Security, Storage, Packages, and Logs show **Not implemented yet**.
 VPN lists planned providers without operational statuses or actions. No backend
 operations exist for these placeholders.
 
@@ -104,7 +158,7 @@ the references in `src/assets/mokups/`. The sidebar collapses on narrow screens;
 content and controls remain within the viewport. The same fixed navy/cyan/green palette is used on light- and dark-background
 terminals. Colors adapt to 256/16-color capabilities; `NO_COLOR` and colorless
 terminals use monochrome. The entire viewport is painted, including unused space. Below 24 columns or 12 rows,
-resize the terminal to use the dashboard. Overview and Services report Linux
+resize the terminal to use the dashboard. Overview, Network, and Services report Linux
 limitations clearly on macOS; navigation and placeholders remain usable.
 
 ### Initial setup
@@ -243,6 +297,7 @@ src/
   internal/
     cli/            # Cobra commands and completion
     setup/          # Shared setup engine
+    network/        # Shared read-only network inspection and native sources
     system/         # Native Linux operations
     tui/            # Main application, navigation, and read-only screens
       setup/        # Existing wizard and embedded session adapter

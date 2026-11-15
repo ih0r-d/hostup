@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
+	networkinfo "github.com/ih0r-d/hostup/src/internal/network"
 	"github.com/ih0r-d/hostup/src/internal/setup"
 	"github.com/ih0r-d/hostup/src/internal/system"
 )
@@ -31,7 +32,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	m := newModel(ctx, dependencies{system.Diagnose, system.NewServiceManager(nil), setup.NewEngine(nil, nil)}, os.Getenv("NO_COLOR") != "")
+	m := newModel(ctx, dependencies{diagnose: system.Diagnose, services: system.NewServiceManager(nil), setup: setup.NewEngine(nil, nil), network: networkinfo.Inspect}, os.Getenv("NO_COLOR") != "")
 	// Let the model drain an in-flight setup operation before exiting. On terminal
 	// failure, close still cancels/joins it after Bubble Tea restores the terminal.
 	p := tea.NewProgram(m, tea.WithInput(in), tea.WithOutput(out),

@@ -4,7 +4,6 @@ import tea "charm.land/bubbletea/v2"
 
 // Explicit module entry points keep navigation independent from future module
 // interactions. Unfinished sections perform no backend work.
-func (m *model) showNetwork() tea.Cmd  { return m.showPlaceholder(network) }
 func (m *model) showVPN() tea.Cmd      { return m.showPlaceholder(vpn) }
 func (m *model) showSecurity() tea.Cmd { return m.showPlaceholder(security) }
 func (m *model) showStorage() tea.Cmd  { return m.showPlaceholder(storage) }

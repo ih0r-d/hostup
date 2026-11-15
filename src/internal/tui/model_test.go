@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	networkinfo "github.com/ih0r-d/hostup/src/internal/network"
 	"github.com/ih0r-d/hostup/src/internal/setup"
 	"github.com/ih0r-d/hostup/src/internal/system"
 	setupwizard "github.com/ih0r-d/hostup/src/internal/tui/setup"
@@ -68,7 +69,7 @@ func testModel(t *testing.T) (*model, *serviceFixture) {
 			t.Error("unintended setup change")
 			return nil, errors.New("forbidden")
 		})
-	m := newModel(context.Background(), dependencies{func() (system.Diagnostics, error) { return report(), nil }, system.NewServiceManager(f), engine}, true)
+	m := newModel(context.Background(), dependencies{diagnose: func() (system.Diagnostics, error) { return report(), nil }, services: system.NewServiceManager(f), setup: engine, network: func(context.Context) (networkinfo.Report, error) { return networkReport(), nil }}, true)
 	t.Cleanup(func() { m.close(nil) })
 	return m, f
 }
@@ -162,7 +163,7 @@ func TestSectionEntriesAndPlaceholders(t *testing.T) {
 			if !m.opened || m.selected != s {
 				t.Fatal("section not opened")
 			}
-			if s == overview || s == services {
+			if s == overview || s == services || s == network {
 				if command == nil {
 					t.Fatal("missing load")
 				}
@@ -197,7 +198,7 @@ func TestSectionEntriesAndPlaceholders(t *testing.T) {
 	}
 	// Independently callable entry functions exist for every unfinished module.
 	m, _ := testModel(t)
-	for _, entry := range []func() tea.Cmd{m.showNetwork, m.showVPN, m.showSecurity, m.showStorage, m.showPackages, m.showLogs} {
+	for _, entry := range []func() tea.Cmd{m.showVPN, m.showSecurity, m.showStorage, m.showPackages, m.showLogs} {
 		if entry() != nil || !strings.Contains(m.body(m.theme(), 70, 24), "Not implemented yet") {
 			t.Fatal("placeholder entry")
 		}

@@ -42,6 +42,22 @@ explicit CLI approval for changes; it does not implement setup plans or promise
 state verification. Existing read-only diagnostics, TUI screens, installation,
 and completion keep their current responsibilities.
 
+## Network inspection
+
+`src/internal/network` owns a shared read-only snapshot model and native collector.
+Cobra's `network status/interfaces/routes/dns` commands format that model; the
+existing Network TUI screen collects it asynchronously and supports manual refresh.
+Rendering performs no native reads. Private function dependencies enable fixture
+tests without Linux, root privileges, external packages, or network access.
+
+Go interface APIs, sysfs link metadata, procfs routing views, and `resolv.conf`
+are the only sources. Each source carries availability/error status, so missing
+DNS or routes retain the remaining snapshot. Only unsupported platforms and
+context cancellation/deadlines fail collection globally. Ordering is deterministic;
+resolver/search priority remains in configured order. No timestamps, monitoring,
+configuration persistence, connectivity claims, or policy-routing completeness
+are implied. See the README for source limitations.
+
 ## Planned Components
 
 - CLI: command-line interface
