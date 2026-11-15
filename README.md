@@ -1,10 +1,10 @@
 # Hostup
 
-**A lightweight, native-first Linux setup and management toolkit.**
+**A safe, terminal-first Linux operations toolkit.**
 
-Hostup aims to simplify Linux system configuration,
-diagnostics, and everyday management through a unified
-CLI and interactive terminal interface.
+Hostup makes system changes transparent, predictable, and verifiable through
+native Linux integrations shared by CLI and TUI. Hostname and timezone setup
+follows inspect → plan → validate → explicitly approve → apply → verify.
 
 ## Philosophy
 
@@ -14,6 +14,7 @@ CLI and interactive terminal interface.
 - Minimal resource consumption
 - Predictable and transparent operations
 - Safe and repeatable configuration
+- Explicit approval and verification of actual system state
 - CLI and TUI backed by shared functionality
 
 ## Planned Platforms
@@ -56,6 +57,10 @@ excludes reserved filesystem blocks. If a diagnostic cannot be collected,
 Service management uses `systemctl` and `journalctl` directly on Linux systems
 running systemd. Changes prompt for confirmation on a terminal; use `--yes` for
 automation. Hostup never invokes `sudo`.
+Service changes disable native password prompts and have a 30-second deadline.
+Finite service queries/log reads are bounded; explicit log following runs until
+cancelled. Existing service commands report execution results, without setup's
+plan/verification lifecycle.
 
 `info` and `doctor` require Linux. Development, unit tests, and cross-compilation
 work on macOS; diagnostic tests use fixtures without Linux hardware.
@@ -123,6 +128,8 @@ Hostnames use lowercase DNS labels (letters, digits, and internal hyphens),
 with at most 63 bytes per label and 64 bytes total. Timezones must be named
 locations in the available IANA timezone database, such as `UTC`, `Europe/Kyiv`,
 or `America/New_York`; process-local `Local` and numeric offsets are unsupported.
+Timezone identifiers are compared exactly: `UTC` and `Etc/UTC` remain distinct;
+Hostup does not normalize aliases or infer equivalence from offsets.
 
 Hostup reads the kernel hostname and the `/etc/localtime` zoneinfo symlink.
 If that link cannot identify a timezone, it queries `timedatectl` read-only.
@@ -136,19 +143,33 @@ Only necessary changes run, in hostname then timezone order, through
 `timedatectl --no-ask-password set-timezone`, without a shell or automatic sudo.
 These native tools persist the system settings; Hostup adds no configuration,
 receipt, or state files. The system must provide the native systemd tools and
-appropriate permissions. Every external command has a 30-second timeout and
-honors the caller's context cancellation.
+appropriate permissions. Setup inspection and each external command have a 30-second timeout and
+honor the caller's context cancellation.
 
-Application stops on the first error and reports completed commands, the failed
+After each successful setup command, Hostup rereads actual hostname and timezone.
+`Applied` now means observed at the desired value, rather than merely a zero
+command exit status. Successful commands without a matching observation are
+reported as `Executed (not verified)`. A mismatch or unavailable observation
+returns an error and stops further changes. Earlier settings are rechecked in
+each successful snapshot, including settings retained without changes.
+
+Application stops on the first error and reports verified settings, the failed
 setting, and changes not attempted. A failed or interrupted command may already
-have changed its setting; rerun `setup plan` to inspect the actual state.
-There is no automatic rollback. Repeated successful application skips settings
-already at the desired values.
+have changed its setting; rerun `setup plan` before retrying. Retry always
+reinspects actual state and skips settings already at their desired values.
+There is no automatic retry or rollback. Inspections are snapshots, not an atomic
+transaction: another process can change settings after preflight or verification.
+An unreadable final snapshot leaves resulting state uncertain; earlier verified
+settings describe the last successful observation, not a guarantee of permanence.
 
-The reusable `src/internal/setup` engine owns validation, planning, and execution.
+The reusable `src/internal/setup` engine owns validation, planning, execution, and verification.
 Cobra handles flags, text/JSON rendering, and confirmation; the interactive
 wizard uses the same engine and validators. `ApplyWithProgress` reports operation
-boundaries without exposing command output; `Apply` retains its existing API.
+boundaries without exposing command output; `Applied` progress follows read-back.
+`Apply` retains its existing API and plan JSON fields are unchanged. Structured
+results distinguish successful commands (`Executed`), verified values (`Applied`),
+retained values, failed settings, and unattempted changes. Verification errors
+distinguish mismatches from unavailable observations while preserving their causes.
 
 ### Interactive setup wizard
 
@@ -191,7 +212,7 @@ The footer shows only controls relevant to the current screen, adding scroll
 hints when content overflows. Below 32 columns or 14 rows the layout asks
 for more space and prevents hidden confirmation/application actions. `NO_COLOR`
 uses monochrome presentation; state labels remain meaningful without colors.
-Progress reports completion only after an operation succeeds. Failures do not
+Progress reports completion only after an operation is applied and verified. Failures do not
 retry automatically or roll back changes. Results remain visible until closed,
 and the standalone wizard leaves a plain summary in the terminal afterward.
 

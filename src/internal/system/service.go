@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 )
 
 var serviceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_@.-]+(?:\.service)?$`)
@@ -32,7 +34,15 @@ func (execCommandExecutor) Run(ctx context.Context, name string, args ...string)
 	if err := ensureSystemdOS(); err != nil {
 		return nil, err
 	}
-	return exec.CommandContext(ctx, name, args...).Output()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		err = errors.Join(err, ctx.Err())
+	}
+	return out, err
 }
 
 func (execCommandExecutor) Stream(ctx context.Context, dst io.Writer, name string, args ...string) error {
@@ -40,18 +50,26 @@ func (execCommandExecutor) Stream(ctx context.Context, dst io.Writer, name strin
 		return err
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second
 	cmd.Stdout = dst
 	cmd.Stderr = dst
-	return cmd.Run()
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return errors.Join(err, ctx.Err())
+	}
+	return err
 }
 
-type ServiceManager struct{ executor CommandExecutor }
+type ServiceManager struct {
+	executor CommandExecutor
+	timeout  time.Duration
+}
 
 func NewServiceManager(executor CommandExecutor) *ServiceManager {
 	if executor == nil {
 		executor = execCommandExecutor{}
 	}
-	return &ServiceManager{executor: executor}
+	return &ServiceManager{executor: executor, timeout: 30 * time.Second}
 }
 
 func (m *ServiceManager) List(ctx context.Context) ([]Service, error) {
@@ -102,6 +120,9 @@ func (m *ServiceManager) Status(ctx context.Context, name string) (string, error
 	}
 	out, err := m.executor.Run(ctx, "systemctl", "status", "--no-pager", normalizeServiceName(name))
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return string(out), commandError("get status", "systemctl", err)
+		}
 		// systemctl status uses exit code 3 for inactive and failed units.
 		// Keep their status report, but do not suppress execution errors or stderr.
 		var exitErr *exec.ExitError
@@ -158,7 +179,15 @@ func (m *ServiceManager) Change(ctx context.Context, action, name string) error 
 	if action != "start" && action != "stop" && action != "restart" && action != "enable" && action != "disable" {
 		return fmt.Errorf("unsupported service action %q", action)
 	}
-	_, err := m.executor.Run(ctx, "systemctl", action, normalizeServiceName(name))
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_, err := m.executor.Run(ctx, "systemctl", action, "--no-ask-password", normalizeServiceName(name))
+	if ctx.Err() != nil {
+		err = errors.Join(err, ctx.Err())
+	}
 	if err != nil {
 		return commandError(action+" service", "systemctl", err)
 	}
@@ -175,6 +204,10 @@ func (m *ServiceManager) Logs(ctx context.Context, dst io.Writer, name string, l
 	args := []string{"--no-pager", "--unit", normalizeServiceName(name), "--lines", fmt.Sprint(lines)}
 	if follow {
 		args = append(args, "--follow")
+	} else {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, m.timeout)
+		defer cancel()
 	}
 	if err := m.executor.Stream(ctx, dst, "journalctl", args...); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -209,24 +242,27 @@ func ensureSystemdOS() error {
 }
 
 func commandError(action, executable string, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s failed: %w", action, err)
+	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		message := strings.TrimSpace(string(exitErr.Stderr))
 		lower := strings.ToLower(message)
 		switch {
 		case strings.Contains(lower, "not found"), strings.Contains(lower, "could not be found"), strings.Contains(lower, "not loaded"):
-			return fmt.Errorf("%s: service not found: %s", action, message)
-		case strings.Contains(lower, "access denied"), strings.Contains(lower, "authentication is required"), strings.Contains(lower, "not authorized"), strings.Contains(lower, "permission denied"):
-			return fmt.Errorf("%s: insufficient permissions; run with the required privileges explicitly: %s", action, message)
+			return fmt.Errorf("%s: service not found: %s: %w", action, message, err)
+		case strings.Contains(lower, "access denied"), strings.Contains(lower, "authentication is required"), strings.Contains(lower, "authentication required"), strings.Contains(lower, "not authorized"), strings.Contains(lower, "permission denied"):
+			return fmt.Errorf("%s: insufficient permissions; run with the required privileges explicitly: %s: %w", action, message, errors.Join(os.ErrPermission, err))
 		case strings.Contains(lower, "not booted with systemd"), strings.Contains(lower, "system has not been booted with systemd"), strings.Contains(lower, "failed to connect to bus"):
-			return fmt.Errorf("%s: systemd is unavailable: %s", action, message)
+			return fmt.Errorf("%s: systemd is unavailable: %s: %w", action, message, err)
 		}
 		if message != "" {
-			return fmt.Errorf("%s failed: %s", action, message)
+			return fmt.Errorf("%s failed: %s: %w", action, message, err)
 		}
 	}
 	if errors.Is(err, exec.ErrNotFound) {
-		return fmt.Errorf("%s: %s is unavailable", action, executable)
+		return fmt.Errorf("%s: %s is unavailable: %w", action, executable, err)
 	}
 	return fmt.Errorf("%s failed: %w", action, err)
 }

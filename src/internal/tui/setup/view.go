@@ -170,6 +170,10 @@ func (m *model) resultView(t theme) string {
 		}
 		if m.cancelling || errors.Is(m.err, context.Canceled) {
 			title = "Cancelled"
+		} else if errors.Is(m.err, setup.ErrVerificationMismatch) {
+			title = "Verification failed"
+		} else if errors.Is(m.err, setup.ErrVerificationUnavailable) {
+			title = "Verification unavailable"
 		}
 	} else if len(m.result.Applied) == 0 {
 		title = "Already configured"
@@ -184,6 +188,11 @@ func (m *model) resultView(t theme) string {
 		switch {
 		case m.result.Failed == setting.key:
 			state, stateStyle = "! Failed", t.warning
+			if errors.Is(m.err, setup.ErrVerificationMismatch) || errors.Is(m.err, setup.ErrVerificationUnavailable) {
+				state = "! Unverified"
+			}
+		case slices.Contains(m.result.Unverified(), setting.key):
+			state, stateStyle = "! Unverified", t.warning
 		case slices.Contains(m.result.Applied, setting.key):
 			state, stateStyle = "+ Applied", t.success
 		case slices.Contains(m.result.Unchanged, setting.key):
@@ -214,6 +223,8 @@ func (m *model) resultView(t theme) string {
 
 func (m *model) resultHint() string {
 	switch {
+	case errors.Is(m.err, setup.ErrVerificationMismatch), errors.Is(m.err, setup.ErrVerificationUnavailable), errors.Is(m.err, setup.ErrStalePlan):
+		return friendlyError(m.err)
 	case errors.Is(m.err, os.ErrPermission):
 		return "Insufficient permissions. Rerun with the required privileges."
 	case errors.Is(m.err, context.DeadlineExceeded):

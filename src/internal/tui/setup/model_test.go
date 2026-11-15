@@ -3,6 +3,7 @@ package setupwizard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -16,18 +17,23 @@ import (
 )
 
 type systemFixture struct {
-	current setup.Configuration
-	reads   int
-	calls   []string
-	fail    string
-	err     error
-	block   string
-	entered chan struct{}
+	current    setup.Configuration
+	reads      int
+	calls      []string
+	fail       string
+	err        error
+	block      string
+	entered    chan struct{}
+	noChange   string
+	readFailAt int
 }
 
 func (f *systemFixture) engine() *setup.Engine {
 	return setup.NewEngine(func(context.Context) (setup.Configuration, error) {
 		f.reads++
+		if f.reads == f.readFailAt {
+			return setup.Configuration{}, errors.New("state inspection failed")
+		}
 		return f.current, nil
 	}, func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		f.calls = append(f.calls, name)
@@ -39,6 +45,9 @@ func (f *systemFixture) engine() *setup.Engine {
 		if name == f.fail {
 			return nil, f.err
 		}
+		if name == f.noChange {
+			return nil, nil
+		}
 		if name == "hostnamectl" {
 			f.current.Hostname = args[2]
 		} else {
@@ -46,6 +55,34 @@ func (f *systemFixture) engine() *setup.Engine {
 		}
 		return nil, nil
 	})
+}
+
+func TestWizardVerificationOutcomes(t *testing.T) {
+	for _, unavailable := range []bool{false, true} {
+		t.Run(fmt.Sprint(unavailable), func(t *testing.T) {
+			f := &systemFixture{current: setup.Configuration{Hostname: "old-host", Timezone: "UTC"}, noChange: "hostnamectl"}
+			m := readyModel(t, f)
+			press(m, tea.KeyEnter)
+			edit(m, 0, "new-host")
+			reviewPlan(t, m)
+			if unavailable {
+				f.readFailAt = f.reads + 2
+			} // Preflight succeeds; read-back fails.
+			press(m, tea.KeySpace)
+			finishApplication(t, m, press(m, tea.KeyEnter))
+			want := setup.ErrVerificationMismatch
+			if unavailable {
+				want = setup.ErrVerificationUnavailable
+			}
+			if !errors.Is(m.err, want) || len(m.result.Applied) != 0 || len(m.result.Unverified()) != 1 {
+				t.Fatalf("result %+v error %v", m.result, m.err)
+			}
+			text := ansi.Strip(m.View().Content)
+			if !strings.Contains(text, "Verification") || strings.Contains(text, "Setup complete") || !strings.Contains(m.summary(), "Executed (not verified): hostname") {
+				t.Fatalf("view %s summary %s", text, m.summary())
+			}
+		})
+	}
 }
 
 func readyModel(t *testing.T, f *systemFixture) *model {

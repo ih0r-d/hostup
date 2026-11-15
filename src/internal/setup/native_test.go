@@ -161,3 +161,17 @@ func TestNativeExecution(t *testing.T) {
 		})
 	}
 }
+
+func TestTimezoneReadFailureCauses(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := readTimezone(ctx, "unused", "unused", func(context.Context, string, ...string) ([]byte, error) {
+		t.Fatal("cancelled read ran a utility")
+		return nil, nil
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if _, err := readTimezone(context.Background(), filepath.Join(t.TempDir(), "missing"), t.TempDir(), func(context.Context, string, ...string) ([]byte, error) { return nil, exec.ErrNotFound }); !errors.Is(err, exec.ErrNotFound) {
+		t.Fatal("missing tool cause lost", err)
+	}
+}

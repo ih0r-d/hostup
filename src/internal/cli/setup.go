@@ -108,7 +108,7 @@ func writeSetupResult(out io.Writer, result setup.Result) error {
 	for _, group := range []struct {
 		label  string
 		fields []string
-	}{{"Applied", result.Applied}, {"Unchanged", result.Unchanged}, {"Not attempted", result.Pending}} {
+	}{{"Applied", result.Applied}, {"Executed (not verified)", result.Unverified()}, {"Unchanged", result.Unchanged}, {"Not attempted", result.Pending}} {
 		for _, field := range group.fields {
 			if _, err := fmt.Fprintf(out, "%s: %s\n", group.label, field); err != nil {
 				return err

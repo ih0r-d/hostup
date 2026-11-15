@@ -3,7 +3,9 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -35,18 +37,31 @@ type Plan struct {
 
 func (p Plan) HasChanges() bool { return p.Hostname.Changed || p.Timezone.Changed }
 
-// Result records commands that succeeded, settings already at their desired
-// value, a command that failed, and changes not attempted. A failed command may
-// have changed the system before returning an error; no rollback is performed.
+// Result records observations, not a transaction. Applied settings were read
+// back at their desired values; Executed records successful commands, including
+// any not subsequently verified. A failed command may have had side effects.
+// Observations are snapshots: no lock prevents later external changes.
 type Result struct {
 	Applied   []string
+	Executed  []string
 	Unchanged []string
 	Failed    string
 	Pending   []string
 }
 
+// Unverified lists successful commands without a matching latest observation.
+func (r Result) Unverified() []string {
+	var fields []string
+	for _, field := range r.Executed {
+		if !slices.Contains(r.Applied, field) {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
 // Progress reports operation boundaries synchronously, without command output.
-// Applied is emitted only after a command completes successfully.
+// Applied is emitted only after execution and a successful state read-back.
 type Progress struct {
 	Setting string
 	State   OperationState
@@ -76,7 +91,7 @@ type Engine struct {
 }
 
 // NewEngine accepts fixture/adaptor functions or nil for native Linux defaults.
-// External commands receive a 30-second deadline, bounded by the caller's ctx.
+// State reads and commands receive 30-second deadlines bounded by caller ctx.
 func NewEngine(read ReadCurrent, run Runner) *Engine {
 	if run == nil {
 		run = runCommand
@@ -141,7 +156,7 @@ func (e *Engine) ApplyWithProgress(ctx context.Context, plan Plan, notify func(P
 	// Plans are public values: validate them again before executing any changes.
 	for _, op := range operations {
 		if op.change.Changed != (op.change.Current != op.change.Desired) {
-			return result, fmt.Errorf("inconsistent %s plan", op.field)
+			return result, fmt.Errorf("%w: inconsistent %s plan", ErrInvalidConfiguration, op.field)
 		}
 		if op.change.Changed {
 			if err := op.validate(op.change.Desired); err != nil {
@@ -156,7 +171,7 @@ func (e *Engine) ApplyWithProgress(ctx context.Context, plan Plan, notify func(P
 	values := []string{current.Hostname, current.Timezone}
 	for i, op := range operations {
 		if values[i] != op.change.Current && values[i] != op.change.Desired {
-			return result, fmt.Errorf("%s changed since planning; review a new plan", op.field)
+			return result, fmt.Errorf("%w: %s changed since planning; review a new plan", ErrStalePlan, op.field)
 		}
 	}
 	result.Pending = result.Pending[:0]
@@ -172,7 +187,18 @@ func (e *Engine) ApplyWithProgress(ctx context.Context, plan Plan, notify func(P
 	}
 	for i, op := range operations {
 		if values[i] == op.change.Desired {
+			// A previous verification may observe an externally completed change.
+			if index := slices.Index(result.Pending, op.field); index >= 0 {
+				result.Pending = slices.Delete(result.Pending, index, index+1)
+				result.Unchanged = append(result.Unchanged, op.field)
+				if notify != nil {
+					notify(Progress{op.field, Unchanged})
+				}
+			}
 			continue
+		}
+		if values[i] != op.change.Current {
+			return result, fmt.Errorf("%w: %s changed since planning; review a new plan", ErrStalePlan, op.field)
 		}
 		if err := ctx.Err(); err != nil {
 			return result, err
@@ -189,27 +215,62 @@ func (e *Engine) ApplyWithProgress(ctx context.Context, plan Plan, notify func(P
 			}
 			return result, fmt.Errorf("apply %s: %w", op.field, err)
 		}
-		result.Applied = append(result.Applied, op.field)
+		result.Executed = append(result.Executed, op.field)
+		observed, readErr := e.current(ctx)
+		if readErr != nil {
+			result.Failed = op.field
+			if notify != nil {
+				notify(Progress{op.field, Failed})
+			}
+			return result, &VerificationError{Setting: op.field, Expected: op.change.Desired, Cause: readErr}
+		}
+		values = []string{observed.Hostname, observed.Timezone}
+		// Recheck every completed/retained setting in this snapshot. Pending
+		// changes still have their old values and are checked when reached.
+		result.Applied = result.Applied[:0]
+		for j, checked := range operations {
+			if values[j] == checked.change.Desired && slices.Contains(result.Executed, checked.field) {
+				result.Applied = append(result.Applied, checked.field)
+			}
+			if values[j] != checked.change.Desired {
+				if index := slices.Index(result.Unchanged, checked.field); index >= 0 {
+					result.Unchanged = slices.Delete(result.Unchanged, index, index+1)
+				}
+			}
+		}
 		if notify != nil {
-			notify(Progress{op.field, Applied})
+			if slices.Contains(result.Applied, op.field) {
+				notify(Progress{op.field, Applied})
+			}
+		}
+		for j, checked := range operations {
+			if !slices.Contains(result.Pending, checked.field) && values[j] != checked.change.Desired {
+				result.Failed = checked.field
+				if notify != nil {
+					notify(Progress{checked.field, Failed})
+				}
+				return result, &VerificationError{Setting: checked.field, Expected: checked.change.Desired, Actual: values[j]}
+			}
 		}
 	}
 	return result, nil
 }
 
 func (e *Engine) current(ctx context.Context) (Configuration, error) {
+	ctx, cancel := context.WithTimeout(ctx, e.timeout)
+	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return Configuration{}, err
 	}
 	current, err := e.readCurrent(ctx)
 	if ctx.Err() != nil {
-		return Configuration{}, ctx.Err()
+		return Configuration{}, errors.Join(err, ctx.Err())
 	}
 	if err != nil {
 		return Configuration{}, fmt.Errorf("read current setup: %w", err)
 	}
 	if current.Hostname == "" || current.Timezone == "" {
-		return Configuration{}, fmt.Errorf("read current setup: hostname and timezone must be known")
+		return Configuration{}, fmt.Errorf("read current setup: %w: hostname and timezone must be known", ErrUnknownState)
 	}
 	return current, nil
 }
@@ -229,7 +290,7 @@ func (d Desired) validate() error {
 // ValidateHostname accepts lowercase DNS labels within Linux's 64-byte limit.
 func ValidateHostname(name string) error {
 	invalid := func() error {
-		return fmt.Errorf("invalid hostname %q: use lowercase DNS labels, at most 64 bytes total", name)
+		return fmt.Errorf("%w: invalid hostname %q: use lowercase DNS labels, at most 64 bytes total", ErrInvalidConfiguration, name)
 	}
 	if len(name) == 0 || len(name) > 64 {
 		return invalid()
@@ -251,20 +312,20 @@ func ValidateHostname(name string) error {
 // Go's special Local value is process-dependent and is not a system timezone.
 func ValidateTimezone(name string) error {
 	if name == "" || name == "Local" {
-		return fmt.Errorf("invalid timezone %q: use an IANA timezone such as UTC or Europe/Kyiv", name)
+		return fmt.Errorf("%w: invalid timezone %q: use an IANA timezone such as UTC or Europe/Kyiv", ErrInvalidConfiguration, name)
 	}
 	for _, part := range strings.Split(name, "/") {
 		if part == "" {
-			return fmt.Errorf("invalid timezone %q", name)
+			return fmt.Errorf("%w: invalid timezone %q", ErrInvalidConfiguration, name)
 		}
 		for _, c := range part {
 			if !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') && !strings.ContainsRune("_+-", c) {
-				return fmt.Errorf("invalid timezone %q", name)
+				return fmt.Errorf("%w: invalid timezone %q", ErrInvalidConfiguration, name)
 			}
 		}
 	}
 	if _, err := time.LoadLocation(name); err != nil {
-		return fmt.Errorf("invalid timezone %q: %w", name, err)
+		return fmt.Errorf("invalid timezone %q: %w", name, errors.Join(ErrInvalidConfiguration, err))
 	}
 	return nil
 }

@@ -14,7 +14,7 @@ import (
 
 func requireLinux(goos string) error {
 	if goos != "linux" {
-		return fmt.Errorf("setup is unsupported on %s; Linux is required", goos)
+		return fmt.Errorf("setup is unsupported on %s; Linux is required: %w", goos, ErrUnsupportedPlatform)
 	}
 	return nil
 }
@@ -37,6 +37,9 @@ func readLinux(ctx context.Context, run Runner) (Configuration, error) {
 // Prefer the configured zoneinfo link. A copied/custom localtime file has no
 // reliable zone name; ask timedatectl rather than trusting a stale /etc/timezone.
 func readTimezone(ctx context.Context, localtime, zoneDir string, run Runner) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if target, err := os.Readlink(localtime); err == nil {
 		if !filepath.IsAbs(target) {
 			target = filepath.Join(filepath.Dir(localtime), target)
@@ -83,7 +86,7 @@ func (e *Engine) command(ctx context.Context, name string, args ...string) ([]by
 	}
 	out, err := e.run(ctx, name, args...)
 	if ctx.Err() != nil {
-		return out, fmt.Errorf("%s: %w", name, ctx.Err())
+		return out, fmt.Errorf("%s: %w", name, errors.Join(err, ctx.Err()))
 	}
 	if err == nil {
 		return out, nil

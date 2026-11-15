@@ -162,7 +162,7 @@ func TestServiceCLIChanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(out, "? ") || fake.command != "systemctl" || !reflect.DeepEqual(fake.args, []string{action, "sshd.service"}) {
+			if !strings.Contains(out, "? ") || fake.command != "systemctl" || !reflect.DeepEqual(fake.args, []string{action, "--no-ask-password", "sshd.service"}) {
 				t.Fatalf("out %q command %s %v", out, fake.command, fake.args)
 			}
 		})

@@ -64,7 +64,7 @@ func TestServiceManagerOperations(t *testing.T) {
 			if err := NewServiceManager(fake).Change(context.Background(), tt.action, "sshd"); err != nil {
 				t.Fatal(err)
 			}
-			if fake.name != "systemctl" || !reflect.DeepEqual(fake.args, []string{tt.action, "sshd.service"}) {
+			if fake.name != "systemctl" || !reflect.DeepEqual(fake.args, []string{tt.action, "--no-ask-password", "sshd.service"}) {
 				t.Fatalf("command = %s %v", fake.name, fake.args)
 			}
 		})

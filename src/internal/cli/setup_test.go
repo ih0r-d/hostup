@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"runtime"
@@ -277,5 +278,34 @@ func TestSetupCLIIdempotency(t *testing.T) {
 	}
 	if !reflect.DeepEqual(f.calls, []string{"hostnamectl", "timedatectl"}) {
 		t.Fatalf("repeated CLI execution calls=%v", f.calls)
+	}
+}
+
+func TestSetupCLIVerificationFailure(t *testing.T) {
+	for _, unavailable := range []bool{false, true} {
+		t.Run(fmt.Sprint(unavailable), func(t *testing.T) {
+			current := setup.Configuration{Hostname: "old-host", Timezone: "UTC"}
+			executed := false
+			cause := errors.New("read failed")
+			engine := setup.NewEngine(func(context.Context) (setup.Configuration, error) {
+				if executed && unavailable {
+					return setup.Configuration{}, cause
+				}
+				return current, nil
+			}, func(context.Context, string, ...string) ([]byte, error) { executed = true; return nil, nil })
+			cmd := newSetupCommand(engine, confirmService, func(io.Reader) bool { t.Fatal("--yes prompted"); return false })
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs([]string{"apply", "--hostname", "new-host", "--yes"})
+			err := cmd.Execute()
+			want := setup.ErrVerificationMismatch
+			if unavailable {
+				want = setup.ErrVerificationUnavailable
+			}
+			if !errors.Is(err, want) || !strings.Contains(out.String(), "Executed (not verified): hostname") || strings.Contains(out.String(), "Applied: hostname") {
+				t.Fatalf("error %v output %s", err, out.String())
+			}
+		})
 	}
 }

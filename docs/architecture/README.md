@@ -2,7 +2,7 @@
 
 ## Overview
 
-Hostup is a native-first Linux management application written in Go.
+Hostup is a safe, terminal-first Linux operations toolkit written in Go.
 
 All application sources live in `src/`. `src/main.go` runs the Cobra root command
 and translates errors into process exit status. `src/internal/` separates CLI,
@@ -19,6 +19,28 @@ the root `Taskfile.yml` composes the development and CI workflows.
 5. Privileged operations require explicit authorization.
 6. Network and SSH changes must protect remote access.
 7. Platform-specific behavior must be isolated where necessary.
+
+## Current operation lifecycle
+
+The existing setup engine coordinates read-only inspection/planning, validation,
+stale-plan checks, ordered native execution, and post-command verification.
+Cobra owns flags, approval, and output; the wizard owns interaction and renders
+the same engine results/progress. Neither presentation layer reimplements setup
+execution. Native setup reads and process execution remain in `setup/native.go`.
+The function dependencies are sufficient for testing; no workflow framework or
+additional operation interfaces are needed.
+
+`Result.Executed` records successful commands; `Result.Applied` records settings
+confirmed by a subsequent state snapshot. Verification checks both applied and
+retained settings and stops on mismatch or unavailable inspection. Errors retain
+their causes for `errors.Is`/`errors.As`, including cancellation and permission
+errors. Failed commands may have side effects; pending changes were not attempted.
+Retries reinspect state. No rollback, atomicity, or persistence is implied.
+
+The service backend remains separate. It has bounded finite operations and
+explicit CLI approval for changes; it does not implement setup plans or promise
+state verification. Existing read-only diagnostics, TUI screens, installation,
+and completion keep their current responsibilities.
 
 ## Planned Components
 

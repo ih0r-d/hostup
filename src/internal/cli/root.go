@@ -27,7 +27,7 @@ func newRootCommand(run func(context.Context, io.Reader, io.Writer) error, inter
 	}
 	root := &cobra.Command{
 		Use:           "hostup",
-		Short:         "A lightweight Linux setup and management toolkit",
+		Short:         "A safe, terminal-first Linux operations toolkit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
