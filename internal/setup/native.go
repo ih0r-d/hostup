@@ -67,6 +67,14 @@ func runCommand(ctx context.Context, name string, args ...string) ([]byte, error
 	return cmd.Output()
 }
 
+// Preserve the CLI's existing error text and cause while allowing UIs to detect
+// permission failures with errors.Is(err, os.ErrPermission).
+type permissionError struct{ cause error }
+
+func (e permissionError) Error() string        { return e.cause.Error() }
+func (e permissionError) Unwrap() error        { return e.cause }
+func (e permissionError) Is(target error) bool { return target == os.ErrPermission }
+
 func (e *Engine) command(ctx context.Context, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
@@ -93,7 +101,7 @@ func (e *Engine) command(ctx context.Context, name string, args ...string) ([]by
 	if errors.Is(err, os.ErrPermission) || strings.Contains(lower, "access denied") ||
 		strings.Contains(lower, "permission denied") || strings.Contains(lower, "not authorized") ||
 		strings.Contains(lower, "authentication is required") || strings.Contains(lower, "authentication required") {
-		return out, fmt.Errorf("%s: insufficient permissions; run with the required privileges explicitly%s: %w", name, detail, err)
+		return out, fmt.Errorf("%s: insufficient permissions; run with the required privileges explicitly%s: %w", name, detail, permissionError{err})
 	}
 	if errors.Is(err, exec.ErrNotFound) {
 		return out, fmt.Errorf("%s is unavailable; Linux with the native systemd tools is required: %w", name, err)

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/ih0r-d/hostup/internal/setup"
+	setupwizard "github.com/ih0r-d/hostup/internal/tui/setup"
 	"github.com/spf13/cobra"
 )
 
@@ -67,7 +68,7 @@ func newSetupCommand(engine *setup.Engine, prompt func(io.Reader, io.Writer, str
 		return errors.Join(applyErr, writeSetupResult(cmd.OutOrStdout(), result))
 	}}
 	apply.Flags().BoolVarP(&yes, "yes", "y", false, "Confirm without prompting")
-	command.AddCommand(plan, apply)
+	command.AddCommand(plan, apply, newSetupWizardCommand(engine, setupwizard.Run))
 	return command
 }
 

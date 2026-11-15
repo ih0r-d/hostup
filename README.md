@@ -38,6 +38,7 @@ hostup service start|stop|restart|enable|disable <name> [--yes]
 hostup service logs <name> [--follow] [--lines N]
 hostup setup plan [--hostname NAME] [--timezone ZONE] [--json]
 hostup setup apply [--hostname NAME] [--timezone ZONE] [--yes]
+hostup setup wizard
 ```
 
 `info` displays the Linux distribution, version, architecture, and hostname.
@@ -99,10 +100,60 @@ have changed its setting; rerun `setup plan` to inspect the actual state.
 There is no automatic rollback. Repeated successful application skips settings
 already at the desired values.
 
-The reusable `internal/setup` engine owns validation, planning, and execution;
-Cobra handles flags, rendering, and confirmation. A future TUI can use the same
-`Engine.Plan`, `Engine.Apply`, plan/result types, and validation functions.
-An interactive setup wizard is not implemented yet.
+The reusable `internal/setup` engine owns validation, planning, and execution.
+Cobra handles flags, text/JSON rendering, and confirmation; the interactive
+wizard uses the same engine and validators. `ApplyWithProgress` reports operation
+boundaries without exposing command output; `Apply` retains its existing API.
+
+### Interactive setup wizard
+
+```sh
+hostup setup wizard
+NO_COLOR=1 hostup setup wizard
+```
+
+The wizard requires both stdin and stdout to be interactive terminals. It opens
+only when explicitly requested; running `hostup` without arguments still displays
+help. Configure settings inside the wizard; `--hostname`, `--timezone`, `--json`,
+and `--yes` belong to the non-interactive plan/apply workflow.
+
+The centered layout follows the supplied setup design: cyan active steps, navy
+panels, shaded comparison rows, green results, and a separate action bar. Wide
+terminals show a navigation rail containing only the implemented System Setup
+section. The existing PNG logo is embedded and rendered as a compact terminal
+mark; narrow and monochrome layouts use a simple wordmark fallback. Colors adapt
+to light, dark, and low-color terminals.
+
+The welcome screen shows the platform. Configuration fields start with the
+current values, preserve unedited settings, and show validation
+errors inline. Continue refreshes the read-only plan. Review marks each setting
+as **CHANGE** or **SAME**; press **Space** to confirm actual changes, then **Enter**
+to apply. Enter alone cannot authorize changes. If nothing changes, review shows
+**Already configured**: **Enter** verifies the snapshot and closes, without
+confirmation or any state-changing commands.
+
+Controls:
+
+- **Tab / Shift+Tab**: switch configuration fields.
+- **Enter**: Continue, Apply after confirmation, or Done on a no-op/results screen.
+- **Esc**: Back before applying; Close on results.
+- **Ctrl+C**: cancel. During application, wait for the active operation to return
+  so the final summary preserves completed, failed, and unattempted changes.
+- **PgUp / PgDn**: scroll content while controls remain visible.
+- **d**: toggle diagnostic details on an error/result screen.
+
+The footer shows only controls relevant to the current screen, adding scroll
+hints when content overflows. Below 32 columns or 14 rows the layout asks
+for more space and prevents hidden confirmation/application actions. `NO_COLOR`
+uses monochrome presentation; state labels remain meaningful without colors.
+Progress reports completion only after an operation succeeds. Failures do not
+retry automatically or roll back changes. Results remain visible until closed,
+and a plain summary stays in the terminal afterward.
+
+Setup changes require Linux with native systemd tools and appropriate privileges.
+On macOS the welcome screen reports the unsupported environment; no changes can
+be applied. The wizard never elevates privileges. Insufficient permissions are
+reported directly, with raw diagnostics hidden until requested.
 
 ## Planned Features
 
@@ -119,7 +170,7 @@ An interactive setup wizard is not implemented yet.
 
 Requirements:
 
-- Go 1.24+
+- Go 1.26+
 - Task (optional)
 
 Build:
@@ -240,7 +291,7 @@ the test or installation tasks delete or recreate the VM.
 Early development.
 
 The CLI implements `version`, `info`, `doctor`, systemd service management,
-and hostname/timezone setup planning and application.
+and hostname/timezone setup planning, application, and an interactive wizard.
 
 ## Documentation
 

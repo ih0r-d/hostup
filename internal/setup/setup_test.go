@@ -323,3 +323,66 @@ func TestCancellationAndTimeouts(t *testing.T) {
 		})
 	}
 }
+
+func TestProgress(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		desired Desired
+		failAt  int
+		want    []Progress
+	}{
+		{"unchanged", Desired{}, 0, []Progress{{"hostname", Unchanged}, {"timezone", Unchanged}}},
+		{"success", Desired{pointer("new-host"), pointer("Europe/Kyiv")}, 0,
+			[]Progress{{"hostname", Running}, {"hostname", Applied}, {"timezone", Running}, {"timezone", Applied}}},
+		{"failure", Desired{pointer("new-host"), pointer("Europe/Kyiv")}, 1,
+			[]Progress{{"hostname", Running}, {"hostname", Failed}}},
+		{"partial", Desired{pointer("new-host"), pointer("Europe/Kyiv")}, 2,
+			[]Progress{{"hostname", Running}, {"hostname", Applied}, {"timezone", Running}, {"timezone", Failed}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fixture{current: Configuration{"old-host", "UTC"}, failAt: tt.failAt, err: errors.New("failed")}
+			var events []Progress
+			e := NewEngine(f.read, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				if len(events) == 0 || events[len(events)-1].State != Running {
+					t.Fatal("operation reported completion before executing")
+				}
+				return f.run(ctx, name, args...)
+			})
+			plan, err := e.Plan(context.Background(), tt.desired)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = e.ApplyWithProgress(context.Background(), plan, func(event Progress) { events = append(events, event) })
+			if !reflect.DeepEqual(events, tt.want) || (err != nil) != (tt.failAt != 0) {
+				t.Fatalf("events=%v error=%v", events, err)
+			}
+		})
+	}
+}
+
+func TestPreflightPreservesUnattemptedChanges(t *testing.T) {
+	for _, mode := range []string{"cancelled", "stale", "read failure"} {
+		t.Run(mode, func(t *testing.T) {
+			f := &fixture{current: Configuration{"old-host", "UTC"}}
+			e := NewEngine(f.read, f.run)
+			plan, err := e.Plan(context.Background(), Desired{pointer("new-host"), pointer("Europe/Kyiv")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			switch mode {
+			case "cancelled":
+				cancel()
+			case "stale":
+				f.current.Timezone = "Europe/London"
+			case "read failure":
+				e.readCurrent = func(context.Context) (Configuration, error) { return Configuration{}, errors.New("read failed") }
+			}
+			result, err := e.ApplyWithProgress(ctx, plan, func(Progress) { t.Fatal("preflight emitted operation progress") })
+			if err == nil || len(f.calls) != 0 || len(result.Applied) != 0 || len(result.Unchanged) != 0 || !reflect.DeepEqual(result.Pending, []string{"hostname", "timezone"}) {
+				t.Fatalf("result=%+v error=%v calls=%v", result, err, f.calls)
+			}
+		})
+	}
+}

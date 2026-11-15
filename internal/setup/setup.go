@@ -45,6 +45,22 @@ type Result struct {
 	Pending   []string
 }
 
+// Progress reports operation boundaries synchronously, without command output.
+// Applied is emitted only after a command completes successfully.
+type Progress struct {
+	Setting string
+	State   OperationState
+}
+
+type OperationState string
+
+const (
+	Running   OperationState = "running"
+	Applied   OperationState = "applied"
+	Unchanged OperationState = "unchanged"
+	Failed    OperationState = "failed"
+)
+
 // Runner follows the existing system command executor's Run signature. It must
 // honor ctx; adapters can pass an existing executor's Run method directly.
 type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -101,6 +117,12 @@ func change(current, desired string) Change {
 // first failure. It rereads the system: already applied values are skipped, and
 // unrelated changes since planning require reviewing a new plan.
 func (e *Engine) Apply(ctx context.Context, plan Plan) (Result, error) {
+	return e.ApplyWithProgress(ctx, plan, nil)
+}
+
+// ApplyWithProgress has the same safety and result semantics as Apply. notify
+// must return promptly; UIs should enqueue events rather than render here.
+func (e *Engine) ApplyWithProgress(ctx context.Context, plan Plan, notify func(Progress)) (Result, error) {
 	result := Result{Applied: []string{}, Unchanged: []string{}, Pending: []string{}}
 	operations := []struct {
 		field, command, action string
@@ -109,6 +131,12 @@ func (e *Engine) Apply(ctx context.Context, plan Plan) (Result, error) {
 	}{
 		{"hostname", "hostnamectl", "set-hostname", plan.Hostname, ValidateHostname},
 		{"timezone", "timedatectl", "set-timezone", plan.Timezone, ValidateTimezone},
+	}
+	// Retain unattempted changes even if preflight fails or is cancelled.
+	for _, op := range operations {
+		if op.change.Changed {
+			result.Pending = append(result.Pending, op.field)
+		}
 	}
 	// Plans are public values: validate them again before executing any changes.
 	for _, op := range operations {
@@ -130,8 +158,14 @@ func (e *Engine) Apply(ctx context.Context, plan Plan) (Result, error) {
 		if values[i] != op.change.Current && values[i] != op.change.Desired {
 			return result, fmt.Errorf("%s changed since planning; review a new plan", op.field)
 		}
+	}
+	result.Pending = result.Pending[:0]
+	for i, op := range operations {
 		if values[i] == op.change.Desired {
 			result.Unchanged = append(result.Unchanged, op.field)
+			if notify != nil {
+				notify(Progress{op.field, Unchanged})
+			}
 		} else {
 			result.Pending = append(result.Pending, op.field)
 		}
@@ -143,13 +177,22 @@ func (e *Engine) Apply(ctx context.Context, plan Plan) (Result, error) {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
+		if notify != nil {
+			notify(Progress{op.field, Running})
+		}
 		_, err := e.command(ctx, op.command, "--no-ask-password", op.action, op.change.Desired)
 		result.Pending = result.Pending[1:]
 		if err != nil {
 			result.Failed = op.field
+			if notify != nil {
+				notify(Progress{op.field, Failed})
+			}
 			return result, fmt.Errorf("apply %s: %w", op.field, err)
 		}
 		result.Applied = append(result.Applied, op.field)
+		if notify != nil {
+			notify(Progress{op.field, Applied})
+		}
 	}
 	return result, nil
 }

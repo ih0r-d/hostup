@@ -110,8 +110,12 @@ func TestCommandErrors(t *testing.T) {
 				original = &exec.ExitError{Stderr: []byte(tt.stderr)}
 			}
 			e := NewEngine(nil, func(context.Context, string, ...string) ([]byte, error) { return nil, original })
-			if _, err := e.command(context.Background(), "hostnamectl"); err == nil || !strings.Contains(err.Error(), tt.want) || !errors.Is(err, original) {
+			_, err := e.command(context.Background(), "hostnamectl")
+			if err == nil || !strings.Contains(err.Error(), tt.want) || !errors.Is(err, original) {
 				t.Fatalf("command error=%v; want %q wrapping %v", err, tt.want, original)
+			}
+			if tt.want == "insufficient permissions" && !errors.Is(err, os.ErrPermission) {
+				t.Fatalf("permission error cannot be classified by a UI: %v", err)
 			}
 		})
 	}
