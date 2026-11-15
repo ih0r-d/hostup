@@ -4,6 +4,12 @@
 
 Hostup is a native-first Linux management application written in Go.
 
+All application sources live in `src/`. `src/main.go` runs the Cobra root command
+and translates errors into process exit status. `src/internal/` separates CLI,
+the reusable setup engine, native system operations, and the TUI. Embedded brand
+resources live in `src/assets/`. Build and Multipass tooling lives in `.dev/`;
+the root `Taskfile.yml` composes the development and CI workflows.
+
 ## Principles
 
 1. CLI and TUI share the same application logic.

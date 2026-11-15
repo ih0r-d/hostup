@@ -1,0 +1,95 @@
+version: "3"
+
+silent: true
+
+# Reuse the sandbox; destructive deletion remains an explicit prompted task.
+vars:
+  VM_NAME: hostup-sandbox
+  VM_UBUNTU: "24.04"
+  VM_CPUS: "2"
+  VM_MEMORY: 2G
+  VM_DISK: 10G
+
+tasks:
+  check:
+    internal: true
+    preconditions:
+      - sh: command -v multipass >/dev/null 2>&1
+        msg: Install Multipass before running VM tasks.
+      - sh: command -v jq >/dev/null 2>&1
+        msg: Install jq to parse Multipass JSON output.
+
+  up:
+    desc: Create or start the Ubuntu integration VM
+    cmds:
+      - task: check
+      - bash "{{.ROOT_DIR}}/.dev/vm/lifecycle.sh" up "{{.VM_NAME}}" "{{.VM_UBUNTU}}" "{{.VM_CPUS}}" "{{.VM_MEMORY}}" "{{.VM_DISK}}"
+
+  down:
+    desc: Stop the integration VM without deleting it
+    cmds:
+      - task: check
+      - bash "{{.ROOT_DIR}}/.dev/vm/lifecycle.sh" down "{{.VM_NAME}}"
+
+  status:
+    desc: Show integration VM status and information
+    cmds:
+      - task: check
+      - multipass info "{{.VM_NAME}}"
+
+  shell:
+    desc: Open an interactive Ubuntu shell in the integration VM
+    interactive: true
+    cmds:
+      - task: up
+      - multipass shell "{{.VM_NAME}}"
+
+  deploy:
+    desc: Build and transfer the latest Linux ARM64 binary to the VM
+    cmds:
+      - task: up
+      - task: :build:arm64
+      - multipass transfer "{{.ROOT_DIR}}/{{.BUILD_DIR}}/{{.BINARY}}-linux-arm64" "{{.VM_NAME}}:/home/ubuntu/{{.BINARY}}"
+      - multipass exec "{{.VM_NAME}}" -- chmod +x "/home/ubuntu/{{.BINARY}}"
+
+  test:
+    desc: Deploy and run read-only Linux smoke tests in the VM
+    cmds:
+      - task: deploy
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" version
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" info
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" doctor
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service list
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service status systemd-journald
+      - multipass exec "{{.VM_NAME}}" -- "/home/ubuntu/{{.BINARY}}" service logs systemd-journald --lines 20
+
+  test:integration:
+    desc: Test service operations against a disposable systemd unit
+    cmds:
+      - task: deploy
+      - bash "{{.ROOT_DIR}}/.dev/vm/integration.sh" "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}"
+
+  install:
+    desc: Install the local Linux build and detected-shell completion in the VM
+    cmds:
+      - task: deploy
+      - bash "{{.ROOT_DIR}}/.dev/vm/installation.sh" install "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}"
+
+  test:install:
+    desc: Install and verify the sandbox binary and CLI
+    cmds:
+      - task: install
+      - bash "{{.ROOT_DIR}}/.dev/vm/installation.sh" verify "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}" "{{.VERSION}}"
+
+  uninstall:
+    desc: Remove only the VM binary and completion owned by the development installer
+    cmds:
+      - task: check
+      - bash "{{.ROOT_DIR}}/.dev/vm/installation.sh" uninstall "{{.VM_NAME}}" "/home/ubuntu/{{.BINARY}}"
+
+  delete:
+    desc: Permanently delete only the integration VM (asks for confirmation)
+    prompt: "Permanently delete VM '{{.VM_NAME}}' and all its data?"
+    cmds:
+      - task: check
+      - multipass delete --purge "{{.VM_NAME}}"

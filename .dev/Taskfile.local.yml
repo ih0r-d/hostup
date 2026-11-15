@@ -1,0 +1,27 @@
+version: "3"
+
+silent: true
+
+# Local development symlink only; never a system-wide installation.
+tasks:
+  install:
+    desc: Install Hostup development command
+    cmds:
+      - task: :build
+      - mkdir -p "$HOME/.local/bin"
+      - ln -sfn "{{.ROOT_DIR}}/{{.BUILD_DIR}}/{{.BINARY}}" "$HOME/.local/bin/{{.BINARY}}"
+      - echo "Hostup installed at $HOME/.local/bin/{{.BINARY}}"
+      - echo "Ensure $HOME/.local/bin is in your PATH"
+
+  uninstall:
+    desc: Remove Hostup development command
+    cmds:
+      - |
+        LINK="$HOME/.local/bin/{{.BINARY}}"
+        TARGET="{{.ROOT_DIR}}/{{.BUILD_DIR}}/{{.BINARY}}"
+        if [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$TARGET" ]; then
+          rm "$LINK"
+          echo "Hostup development command removed"
+        else
+          echo "No matching Hostup development symlink found"
+        fi
